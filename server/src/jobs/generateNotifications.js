@@ -2,6 +2,7 @@ import { query } from '../db.js';
 import { sendPushToUser } from '../lib/push.js';
 import { sendCalendarReminderEmail } from '../lib/email.js';
 import { buildReminderIcs } from '../lib/ics.js';
+import { getValidAccessToken, upsertCalendarEvent } from '../lib/googleCalendar.js';
 
 const FREQUENCY_DAYS = { weekly: 7, biweekly: 14, monthly: 30 };
 
@@ -101,6 +102,26 @@ export async function generateNotifications() {
           icsFilename: 'reminder.ics',
           bodyHtml: `<p>${n.message}</p><p>Attached is a calendar invite for this reminder.</p>`,
         }).catch((err) => console.error('sendCalendarReminderEmail failed:', err));
+
+        // If they've separately connected Google Calendar (opt-in, Settings
+        // > "Connect Google Calendar"), also push a real event directly —
+        // in addition to, not instead of, the .ics email above, since the
+        // email path still covers Apple/Outlook/anyone who hasn't connected.
+        getValidAccessToken(pref.user_id)
+          .then(async (accessToken) => {
+            if (!accessToken) return; // not connected — nothing to do
+            const eventId = await upsertCalendarEvent({
+              accessToken,
+              summary: n.title,
+              description: n.message,
+              start: n.scheduledFor,
+            });
+            await query('UPDATE notifications SET google_calendar_event_id = $1 WHERE id = $2', [
+              eventId,
+              inserted[0].id,
+            ]);
+          })
+          .catch((err) => console.error('Google Calendar event push failed:', err));
       }
     }
     totalCreated += toCreate.length;

@@ -47,6 +47,19 @@ export const env = {
   // Google Sign-In (Google Identity Services on the frontend posts an id_token here)
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
 
+  // Google Calendar (separate opt-in OAuth grant, distinct from Sign-In above —
+  // Sign-In only ever proves identity, this actually authorizes writing events).
+  // Client secret comes from the SAME OAuth Client ID in Google Cloud Console
+  // as GOOGLE_CLIENT_ID — click into it, the secret is right there.
+  googleClientSecret: clean(process.env.GOOGLE_CLIENT_SECRET) ?? '',
+  // Where Google redirects after consent. MUST be added verbatim under that
+  // same OAuth Client ID's "Authorized redirect URIs" in Google Cloud Console
+  // (this is the one field the Sign-In setup told you to leave empty — that
+  // was for Sign-In's token flow; this is the separate code flow, which
+  // needs it). Points at the BACKEND, not the frontend.
+  googleCalendarRedirectUri:
+    process.env.GOOGLE_CALENDAR_REDIRECT_URI ?? 'http://localhost:4000/google-calendar/callback',
+
   // Sign in with Apple
   appleClientId: process.env.APPLE_CLIENT_ID ?? '', // your Services ID, e.g. com.wyntek.kallkonnect.web
 

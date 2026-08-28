@@ -8,6 +8,7 @@ import { contactsRouter } from './routes/contacts.js';
 import { preferencesRouter } from './routes/preferences.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { oauthRouter } from './routes/oauth.js';
+import { googleCalendarRouter } from './routes/googleCalendar.js';
 import { mcpRouter } from './routes/mcp.js';
 import { pushRouter } from './routes/push.js';
 import { requireAuth } from './middleware/requireAuth.js';
@@ -47,6 +48,13 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // routes/oauth.js for how it bounces to the authenticated consent screen).
 app.use('/auth', authRouter);
 app.use(oauthRouter);
+
+// Google Calendar connect/callback/status/disconnect. Mounted here (not
+// behind the blanket `requireAuth` below) because /google-calendar/callback
+// must be reachable with no session — Google calls it directly, identity
+// comes from the signed state param instead. The other routes in this
+// router apply requireAuth themselves, per-route.
+app.use(googleCalendarRouter);
 
 // OAuth-token-protected: the MCP tool endpoint (separate token space from
 // the app's own JWTs — see middleware/requireOAuthToken.js).

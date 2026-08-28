@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/auth-context';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePreferences } from '@/hooks/usePreferences';
+import { useGoogleCalendar } from '@/hooks/useGoogleCalendar';
 import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect } from 'react';
@@ -20,6 +21,8 @@ export default function Settings() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { preferences, loading, updatePreferences } = usePreferences();
+  const googleCalendar = useGoogleCalendar();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme } = useTheme();
   const { logout, user, updateDisplayName } = useAuth();
   const [nameDraft, setNameDraft] = useState('');
@@ -30,6 +33,26 @@ export default function Settings() {
   useEffect(() => {
     if (user?.displayName) setNameDraft(user.displayName);
   }, [user?.displayName]);
+
+  useEffect(() => {
+    const result = searchParams.get('calendar');
+    if (!result) return;
+    if (result === 'connected') {
+      toast({ title: 'Google Calendar connected', description: 'Reminders will now be added to your calendar automatically.' });
+      googleCalendar.refresh();
+    } else if (result === 'denied') {
+      toast({ title: 'Google Calendar not connected', description: "You didn't grant calendar access, so nothing changed.", variant: 'destructive' });
+    } else if (result === 'error') {
+      toast({ title: "Couldn't connect Google Calendar", description: 'Something went wrong during setup. Please try again.', variant: 'destructive' });
+    }
+    // Clean the URL so refreshing the page doesn't re-fire the toast.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('calendar');
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleSaveName = async () => {
     const trimmed = nameDraft.trim();
@@ -270,14 +293,38 @@ export default function Settings() {
                 </p>
               </div>
               <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-3 h-12 rounded-xl"
-                  onClick={() => handleCalendarSync('Google Calendar')}
-                >
-                  <Calendar className="h-5 w-5" />
-                  <span>Connect Google Calendar</span>
-                </Button>
+                {googleCalendar.status.connected ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Calendar className="h-5 w-5 shrink-0 text-primary" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">Google Calendar connected</p>
+                        {googleCalendar.status.email && (
+                          <p className="text-xs text-muted-foreground truncate">{googleCalendar.status.email}</p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        await googleCalendar.disconnect();
+                        toast({ title: 'Google Calendar disconnected' });
+                      }}
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-3 h-12 rounded-xl"
+                    onClick={googleCalendar.connect}
+                  >
+                    <Calendar className="h-5 w-5" />
+                    <span>Connect Google Calendar</span>
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   className="w-full justify-start gap-3 h-12 rounded-xl"
