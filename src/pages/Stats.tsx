@@ -8,12 +8,25 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
+import { useCallback } from 'react';
+import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
 export default function Stats() {
   const navigate = useNavigate();
-  const { contacts, loading } = useContacts();
+  const { toast } = useToast();
+  const { contacts, loading, refreshContacts } = useContacts();
+
+  // Every figure on this page is derived from `contacts`, so refetching
+  // them recomputes the whole screen.
+  const handleRefresh = useCallback(async () => {
+    await refreshContacts();
+    toast({ title: 'Stats refreshed' });
+  }, [refreshContacts, toast]);
+
+  const { refreshing, pullOffset, handlers } = usePullToRefresh({ onRefresh: handleRefresh });
 
   const totalContacts = contacts.length;
 
@@ -75,9 +88,11 @@ export default function Stats() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
+      {...handlers}
     >
+      <PullIndicator pullOffset={pullOffset} refreshing={refreshing} />
       {/* Header */}
-      <div className="gradient-warm p-6 pb-8 shadow-soft">
+      <div className="gradient-warm header-safe px-6 pb-8 shadow-soft">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center gap-3 mb-2">
             <BarChart3 className="h-8 w-8 text-white" />

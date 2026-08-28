@@ -150,14 +150,17 @@ All colors MUST be HSL.
     -webkit-text-size-adjust: 100%; /* stops iOS auto-bumping font size on rotation, which fights a fixed layout */
   }
 
-  /* Safe-area padding for the iOS status bar (now transparent — see
-     apple-mobile-web-app-status-bar-style in index.html) and the home
-     indicator. Applied at the body/nav level rather than per-page so every
-     screen gets it automatically. No-ops on Android/desktop, where these
-     env() vars are 0. */
-  body {
-    padding-top: env(safe-area-inset-top);
-  }
+  /* The iOS status bar is transparent (black-translucent — see index.html),
+     so page content draws underneath it and something has to fill that
+     strip. Padding the body would fill it with the page background, which
+     left a cream band above every orange header — the status bar visibly
+     not matching the header directly below it.
+
+     Instead each page's header pads itself (.header-safe below) so the
+     orange gradient runs all the way up behind the status bar. Only pages
+     with no such header need body-level padding, which .pt-safe provides
+     on a per-page basis. All of these no-op on Android/desktop, where
+     env(safe-area-inset-*) resolves to 0. */
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold;
@@ -208,6 +211,22 @@ All colors MUST be HSL.
      padding, so the last card in a list is never covered by the nav. */
   .pb-nav-safe {
     padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+
+  /* For a page's top header bar. Adds the status-bar height on top of the
+     header's own p-6, so the header's background — the warm gradient on
+     every main screen — extends up behind the transparent status bar and
+     the two read as one continuous block of colour. The header's text
+     stays clear of the notch because the padding pushes it down. */
+  .header-safe {
+    padding-top: calc(1.5rem + env(safe-area-inset-top));
+  }
+
+  /* For pages with no header of their own (Auth, the OAuth consent screen,
+     404), which need the status-bar strip kept clear so their content
+     doesn't slide under the clock. */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
   }
 
   .transition-smooth {

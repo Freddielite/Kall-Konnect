@@ -11,16 +11,17 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar';
 import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
 import { enablePushNotifications, disablePushNotifications } from '@/lib/push';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
+import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
 
 export default function Settings() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { preferences, loading, updatePreferences } = usePreferences();
+  const { preferences, loading, updatePreferences, refresh: refreshPreferences } = usePreferences();
   const googleCalendar = useGoogleCalendar();
   const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme } = useTheme();
@@ -33,6 +34,20 @@ export default function Settings() {
   useEffect(() => {
     if (user?.displayName) setNameDraft(user.displayName);
   }, [user?.displayName]);
+
+  // Both independent sources this page reads from. Run together rather than
+  // in sequence so the spinner reflects the slower of the two, not their sum.
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([refreshPreferences(), googleCalendar.refresh()]);
+    toast({ title: 'Settings refreshed' });
+  }, [refreshPreferences, googleCalendar, toast]);
+
+  const { refreshing, pullOffset, handlers } = usePullToRefresh({
+    onRefresh: handleRefresh,
+    // The sign-out splash covers the screen; a pull behind it would be
+    // invisible and would refetch data on the way out the door.
+    disabled: signingOut,
+  });
 
   useEffect(() => {
     const result = searchParams.get('calendar');
@@ -116,9 +131,11 @@ export default function Settings() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.18, ease: "easeOut" }}
+        {...handlers}
       >
+      <PullIndicator pullOffset={pullOffset} refreshing={refreshing} />
       {/* Header */}
-      <div className="gradient-warm p-6 pb-8 shadow-soft">
+      <div className="gradient-warm header-safe px-6 pb-8 shadow-soft">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center gap-3 mb-2">
             <SettingsIcon className="h-8 w-8 text-white" />

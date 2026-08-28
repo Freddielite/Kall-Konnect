@@ -135,7 +135,7 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen pt-safe flex items-center justify-center bg-background p-4">
       {transitioning && <SplashScreen fadeOut={transitionFadeOut} />}
       <Card className="w-full max-w-md p-8 shadow-elegant animate-in fade-in-0 slide-in-from-bottom-6 duration-700">
         <div className="text-center mb-8">

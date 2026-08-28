@@ -58,7 +58,7 @@ export default function OAuthConsent() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center gradient-soft p-4">
+    <div className="min-h-screen pt-safe flex items-center justify-center gradient-soft p-4">
       <Card className="w-full max-w-md p-8 shadow-soft border-2">
         {error ? (
           <div className="space-y-2">

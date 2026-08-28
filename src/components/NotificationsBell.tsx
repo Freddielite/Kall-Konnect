@@ -6,13 +6,16 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useNotifications } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
 
-export function NotificationsBell() {
+/** `className` lets a caller restyle the trigger for its surroundings —
+ * the Dashboard sits it on the warm gradient header, where the default
+ * inherited foreground colour would be near-invisible. */
+export function NotificationsBell({ className }: { className?: string }) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-full" aria-label="Notifications">
+        <Button variant="ghost" size="icon" className={cn('relative h-10 w-10 rounded-full', className)} aria-label="Notifications">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-foreground">

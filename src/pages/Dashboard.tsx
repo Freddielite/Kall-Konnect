@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ContactCard } from '@/components/ContactCard';
 import { AddContactDialog } from '@/components/AddContactDialog';
@@ -21,12 +21,13 @@ import { Contact, TemplateTone } from '@/types/contact';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { NotificationsBell } from '@/components/NotificationsBell';
 import { useAuth } from '@/lib/auth-context';
+import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
 
 export default function Dashboard() {
   const { toast } = useToast();
   const { user } = useAuth();
   const firstName = user?.displayName?.trim().split(/\s+/)[0];
-  const { contacts, loading, updateContact, addCallNote, addContact } = useContacts();
+  const { contacts, loading, updateContact, addCallNote, addContact, refreshContacts } = useContacts();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const { reconnectionSuggestions } = useCallAnalytics(contacts);
   const [noteDialog, setNoteDialog] = useState<{ open: boolean; contactId: string; platform: string } | null>(null);
@@ -37,6 +38,18 @@ export default function Dashboard() {
   const [dismissedToday, setDismissedToday] = useState<Set<string>>(() => getDismissedToday());
   const followUpVocabulary = useMemo(() => buildFollowUpVocabulary(contacts), [contacts]);
   const callStreak = useMemo(() => computeCallStreak(contacts), [contacts]);
+
+  const handleRefresh = useCallback(async () => {
+    await refreshContacts();
+    toast({ title: 'Dashboard refreshed' });
+  }, [refreshContacts, toast]);
+
+  const { refreshing, pullOffset, handlers } = usePullToRefresh({
+    onRefresh: handleRefresh,
+    // A dialog scrolls its own content; a downward drag inside one must not
+    // be read as a pull on the page behind it.
+    disabled: Boolean(noteDialog?.open) || addDialogOpen || rescheduleDialog.open || templateDialog.open,
+  });
 
   const handleUpdateFrequency = (contactId: string, frequency: Contact['callFrequency']) => {
     updateContact(contactId, { callFrequency: frequency });
@@ -145,36 +158,43 @@ export default function Dashboard() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
+      {...handlers}
     >
-      <div className="max-w-2xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="mb-6 flex items-start justify-between gap-2">
+      <PullIndicator pullOffset={pullOffset} refreshing={refreshing} />
+      {/* Header — same warm gradient bar as Contacts/Stats/Settings, so the
+          status bar above it is orange on every screen rather than only three
+          of the four. */}
+      <div className="gradient-warm header-safe px-6 pb-8 shadow-soft">
+        <div className="max-w-2xl mx-auto flex items-start justify-between gap-2">
           {contacts.length === 0 ? (
             <div>
-              <h1 className="text-2xl font-bold text-foreground mb-1 flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">
                 Hi{firstName ? ` ${firstName}` : ' there'} 👋
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-white/90">
                 Stay close to the people who matter.
               </p>
             </div>
           ) : (
             <div>
-              <h1 className="text-2xl font-bold text-foreground mb-1 flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">
                 Hi{firstName ? ` ${firstName}` : ' there'}, here's who to reconnect with today 👋🏽
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-white/90">
                 One meaningful check-in a day keeps your connections alive.
               </p>
               {callStreak >= 2 && (
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-white/80 mt-1">
                   🔥 {callStreak}-day streak of staying in touch
                 </p>
               )}
             </div>
           )}
-          <NotificationsBell />
+          <NotificationsBell className="text-white hover:bg-white/20 hover:text-white" />
         </div>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 pt-6">
 
         {/* Celebrations within the next 3 days */}
         {occasions.length > 0 && (

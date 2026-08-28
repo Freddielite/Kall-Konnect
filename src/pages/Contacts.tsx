@@ -8,11 +8,12 @@ import { useContacts } from '@/hooks/useContacts';
 import { Users, Search, Plus, Star, RefreshCw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Contact, TemplateTone } from '@/types/contact';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
 
 const relationshipBadgeClass = (relationship: string) => {
   switch (relationship) {
@@ -40,56 +41,13 @@ export default function Contacts() {
   const [rescheduleDialog, setRescheduleDialog] = useState<{ open: boolean; contactId: string | null }>({ open: false, contactId: null });
   const [editContactId, setEditContactId] = useState<string | null>(null);
   const [templateDialog, setTemplateDialog] = useState<{ open: boolean; contactId: string | null }>({ open: false, contactId: null });
-  const [refreshing, setRefreshing] = useState(false);
-
-  // Pull-to-refresh state
-  const touchStartY = useRef(0);
-  const pullDistance = useRef(0);
-  const [pullOffset, setPullOffset] = useState(0);
-  const isPulling = useRef(false);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  const MIN_REFRESH_SPIN_MS = 600;
 
   const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    const started = Date.now();
     await refreshContacts();
-    const elapsed = Date.now() - started;
-    if (elapsed < MIN_REFRESH_SPIN_MS) {
-      await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_SPIN_MS - elapsed));
-    }
-    setRefreshing(false);
     toast({ title: 'Contacts refreshed' });
   }, [refreshContacts, toast]);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const scrollTop = scrollContainerRef.current?.scrollTop ?? window.scrollY;
-    if (scrollTop === 0) {
-      touchStartY.current = e.touches[0].clientY;
-      isPulling.current = true;
-    } else {
-      isPulling.current = false;
-    }
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isPulling.current) return;
-    const delta = e.touches[0].clientY - touchStartY.current;
-    if (delta > 0) {
-      pullDistance.current = Math.min(delta * 0.5, 80);
-      setPullOffset(pullDistance.current);
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    if (isPulling.current && pullDistance.current >= 60) {
-      handleRefresh();
-    }
-    isPulling.current = false;
-    pullDistance.current = 0;
-    setPullOffset(0);
-  }, [handleRefresh]);
+  const { refreshing, pullOffset, refresh, handlers } = usePullToRefresh({ onRefresh: handleRefresh });
 
   const filteredContacts = contacts.filter(contact => {
     const matchesSearch = contact.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -150,28 +108,11 @@ export default function Contacts() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      ref={scrollContainerRef}
+      {...handlers}
     >
-      {/* Pull-to-refresh indicator */}
-      {(pullOffset > 0 || refreshing) && (
-        <div
-          className="flex items-center justify-center overflow-hidden transition-smooth"
-          style={{ height: refreshing ? 48 : pullOffset }}
-        >
-          <RefreshCw
-            className={cn(
-              'h-5 w-5 text-muted-foreground transition-transform',
-              (refreshing || pullOffset >= 60) && 'animate-spin text-primary'
-            )}
-            style={{ transform: refreshing ? undefined : `rotate(${pullOffset * 3}deg)` }}
-          />
-        </div>
-      )}
+      <PullIndicator pullOffset={pullOffset} refreshing={refreshing} />
       {/* Header */}
-      <div className="gradient-warm p-6 pb-8 shadow-soft">
+      <div className="gradient-warm header-safe px-6 pb-8 shadow-soft">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center gap-3 mb-2">
             <Users className="h-8 w-8 text-white" />
@@ -217,7 +158,7 @@ export default function Contacts() {
                 variant="ghost"
                 size="icon"
                 aria-label="Refresh contacts"
-                onClick={handleRefresh}
+                onClick={() => void refresh()}
                 disabled={refreshing}
                 tapTransition={{ type: 'spring', stiffness: 500, damping: 50 }}
                 className="h-9 w-9 rounded-full"
