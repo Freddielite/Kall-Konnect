@@ -2,10 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://kall-konnect.onrender.com/:path*"
-    },
-    {
       "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
