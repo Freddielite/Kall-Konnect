@@ -5,7 +5,8 @@ import { signAccessToken, issueRefreshToken, rotateRefreshToken, revokeRefreshTo
 import { verifyGoogleIdToken } from '../lib/google.js';
 import { verifyAppleIdToken } from '../lib/apple.js';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { setAuthCookies, clearAuthCookies, setCsrfCookie, ACCESS_COOKIE, REFRESH_COOKIE } from '../lib/cookies.js';
+import { setAuthCookies, clearAuthCookies, setCsrfCookie } from '../lib/cookies.js';
+import { readRefreshToken } from '../lib/session.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 
 export const authRouter = Router();
@@ -23,12 +24,28 @@ async function createUserRow(client, { email, passwordHash, displayName, googleS
   return user;
 }
 
+/**
+ * Issues a session over both transports at once: the cookies as before,
+ * and the same tokens in the response body.
+ *
+ * The body copy exists for browsers that discard the cookies — on iOS
+ * every browser is WebKit, and WebKit blocks third-party cookies with no
+ * site-side opt-out, so a Vercel page talking to a Render API never gets
+ * to keep them (see lib/session.js). The client stores the body copy ONLY
+ * after it has confirmed the cookies were dropped, so this changes nothing
+ * for browsers where cookies work.
+ *
+ * no-store because a response body now carries credentials, and nothing in
+ * front of this (Render's proxy, a corporate cache, the browser's own bfcache
+ * for XHR) should be free to keep a copy.
+ */
 async function issueSession(res, userId) {
   const accessToken = await signAccessToken(userId);
   const refreshToken = await issueRefreshToken(userId);
   setAuthCookies(res, { accessToken, refreshToken });
-  setCsrfCookie(res);
-  res.json({ userId });
+  const csrfToken = setCsrfCookie(res);
+  res.set('Cache-Control', 'no-store');
+  res.json({ userId, accessToken, refreshToken, csrfToken });
 }
 
 authRouter.post('/register', authLimiter, async (req, res) => {
@@ -131,8 +148,10 @@ authRouter.post('/apple', async (req, res) => {
   }
 });
 
+// The refresh token comes from the cookie normally, or from the request
+// body for clients holding it themselves because the cookie was blocked.
 authRouter.post('/refresh', async (req, res) => {
-  const refreshToken = req.cookies?.[REFRESH_COOKIE];
+  const refreshToken = readRefreshToken(req);
   if (!refreshToken) return res.status(401).json({ error: 'Not signed in' });
 
   const rotated = await rotateRefreshToken(refreshToken);
@@ -143,12 +162,16 @@ authRouter.post('/refresh', async (req, res) => {
 
   const accessToken = await signAccessToken(rotated.userId);
   setAuthCookies(res, { accessToken, refreshToken: rotated.refreshToken });
-  setCsrfCookie(res);
-  res.json({ userId: rotated.userId });
+  const csrfToken = setCsrfCookie(res);
+  res.set('Cache-Control', 'no-store');
+  // Rotation means the old refresh token is now dead. A client holding its
+  // own tokens must be given the replacement or its next refresh fails and
+  // it is logged out mid-session.
+  res.json({ userId: rotated.userId, accessToken, refreshToken: rotated.refreshToken, csrfToken });
 });
 
 authRouter.post('/logout', async (req, res) => {
-  const refreshToken = req.cookies?.[REFRESH_COOKIE];
+  const refreshToken = readRefreshToken(req);
   if (refreshToken) await revokeRefreshToken(refreshToken);
   clearAuthCookies(res);
   res.status(204).end();

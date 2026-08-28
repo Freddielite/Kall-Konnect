@@ -13,13 +13,31 @@ import {
 
 export const googleCalendarRouter = Router();
 
+/**
+ * A top-level navigation can't carry an Authorization header, and on a
+ * client whose cookies were blocked (iOS/Safari — see lib/session.js)
+ * there is no cookie either, so /connect would 401 for exactly the users
+ * the bearer fallback was meant to rescue. Accept the access token as a
+ * query param for this one route instead: it is short-lived, it is not the
+ * refresh token, and it is immediately traded for the signed state param
+ * that the rest of the flow actually runs on. Clients with working cookies
+ * never append it.
+ */
+function connectAuth(req, res, next) {
+  const token = req.query?.access_token;
+  if (token && !req.headers.authorization) {
+    req.headers.authorization = `Bearer ${token}`;
+  }
+  return requireAuth(req, res, next);
+}
+
 // Authenticated: the Settings page navigates the browser here directly
 // (window.location.href = ..., a real top-level navigation, not fetch) so
 // the auth cookie rides along. Redirects straight to Google's consent
 // screen with a signed, short-lived state token carrying the userId, since
 // /callback below has no guarantee of a live session by the time Google
 // redirects back.
-googleCalendarRouter.get('/google-calendar/connect', requireAuth, async (req, res) => {
+googleCalendarRouter.get('/google-calendar/connect', connectAuth, async (req, res) => {
   try {
     const state = await signCalendarState(req.userId);
     res.redirect(buildCalendarAuthUrl(state));

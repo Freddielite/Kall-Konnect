@@ -22,14 +22,27 @@ will silently drop it, and the next `/auth/me` will 401. The app will look
 like it "logs in and immediately logs out." The WebSocket breaks too — it
 authenticates from the same `kk_at` cookie on the upgrade request.
 
-Nothing in the code can fix this. It's browser policy.
+Nothing in the code can make the browser *keep* the cookie. It's browser
+policy, and there is no site-side opt-out.
 
-**[fixed in code]** What the code *can* do is stop it being a mystery: the
-server now prints a detailed warning at startup whenever it resolves
-`SameSite=None`, naming this exact failure and the fix. Watch the Render log
-on first boot.
+**[fixed in code]** So the client no longer depends on the cookie surviving.
+Login, register, social sign-in and refresh all return the session tokens in
+the response body as well as setting the cookies. The frontend checks whether
+the cookies actually stuck — by looking for the non-httpOnly `kk_csrf` cookie
+immediately after the response — and only if they were dropped does it keep
+the tokens and send them as `Authorization: Bearer …` instead. The WebSocket
+and the Google Calendar connect redirect, neither of which can carry a
+header, accept the access token as an `access_token` query param.
 
-**Fix — use one parent domain.** You already own `wyntek.tech`:
+Browsers where cookies work are untouched: nothing is stored, no bearer
+header is sent, and the CSRF double-submit check still applies. See
+`src/lib/session-store.ts` and `server/src/lib/session.js`.
+
+This is a workaround, not the destination. Tokens in `localStorage` are
+readable by any XSS on the page; httpOnly cookies are not. Get onto a custom
+domain and this becomes dead code.
+
+**Real fix — use one parent domain.** You already own `wyntek.tech`:
 
 | Service  | Domain              |
 | -------- | ------------------- |
@@ -49,8 +62,9 @@ double-submit CSRF token is your only CSRF defence.
 You cannot bridge `vercel.app` and `onrender.com` with `COOKIE_DOMAIN` —
 both are on the Public Suffix List. A custom domain is the only route.
 
-**If you must ship on the default domains first,** test login in Chrome (not
-Brave) and expect Safari/Brave users to fail. Treat it as temporary.
+**If you ship on the default domains first,** login works everywhere via the
+bearer fallback above — but you're carrying the extra XSS exposure until you
+move to a custom domain. Treat it as temporary.
 
 ---
 

@@ -1,3 +1,13 @@
+import {
+  adoptTokens,
+  getAccessToken,
+  getRefreshToken,
+  getStoredCsrfToken,
+  clearStoredSession,
+  usingTokenFallback,
+  accessTokenSecondsRemaining,
+} from './session-store';
+
 const DEFAULT_BACKEND_PORT = '4000';
 
 /** Bare IPv4 literal, e.g. 192.168.1.162. */
@@ -235,18 +245,42 @@ function logConnectionHint(headline: string, detail: string) {
   }
 }
 
-/** Auth now lives in httpOnly cookies the browser manages automatically —
- * this file no longer touches tokens directly. CSRF protection uses the
- * double-submit pattern: the server also sets a non-httpOnly `kk_csrf`
- * cookie, which we read here and echo back as a header on any
- * state-changing request (the point isn't secrecy, it's proving the
- * request came from JS that can read this origin's cookies, which a
- * cross-site page can't do). */
+/** Auth normally lives in httpOnly cookies the browser manages
+ * automatically. CSRF protection uses the double-submit pattern: the
+ * server also sets a non-httpOnly `kk_csrf` cookie, which we read here and
+ * echo back as a header on any state-changing request (the point isn't
+ * secrecy, it's proving the request came from JS that can read this
+ * origin's cookies, which a cross-site page can't do).
+ *
+ * Where the browser refuses those cookies — iOS/Safari blocks
+ * third-party cookies, and our frontend and API are unavoidably on
+ * different sites — we fall back to sending the same tokens as an
+ * Authorization header instead. See session-store.ts for how that mode is
+ * detected and why it is a fallback rather than the default. */
 function readCsrfCookie(): string | undefined {
   return document.cookie
     .split('; ')
     .find((row) => row.startsWith('kk_csrf='))
     ?.split('=')[1];
+}
+
+/** Headers carrying whichever credential this browser can actually use.
+ * In cookie mode this adds only the CSRF header and the cookie rides along
+ * via credentials:'include'; in fallback mode it adds the bearer token
+ * (which the server accepts without a CSRF token, since a header can't be
+ * forged cross-site the way a cookie can). */
+function authHeaders(method: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  const accessToken = getAccessToken();
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+  if (MUTATING.has(method)) {
+    const csrf = readCsrfCookie() ?? getStoredCsrfToken();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
+
+  return headers;
 }
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -257,14 +291,43 @@ let refreshInFlight: Promise<boolean> | null = null;
  * real error with a confusing one from a request they never made. */
 async function refreshSession(): Promise<boolean> {
   try {
+    // In cookie mode the refresh token rides in the (path-scoped) cookie
+    // and the body is empty. In fallback mode we hold it ourselves and
+    // must send it explicitly — and must store the rotated one that comes
+    // back, or the next refresh fails and the user is logged out.
+    const storedRefresh = getRefreshToken();
     const res = await fetchWithTimeout(`${API_URL}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(storedRefresh ? { refreshToken: storedRefresh } : {}),
     });
-    return res.ok;
+
+    if (!res.ok) {
+      // A refresh token the server has rejected will never work again;
+      // holding it would make every later request pay for two failed
+      // round trips before giving up.
+      if (res.status === 401) clearStoredSession();
+      return false;
+    }
+
+    adoptTokens(await res.json().catch(() => null));
+    return true;
   } catch {
     return false;
   }
+}
+
+/** Refreshes if the stored access token is spent, for the one caller that
+ * can't retry on a 401: the WebSocket, which authenticates during the
+ * upgrade handshake and just gets its connection closed. A minute of slack
+ * covers the round trip and any clock skew. No-op in cookie mode, where
+ * the browser and server handle expiry between themselves. */
+export async function ensureFreshAccessToken(): Promise<void> {
+  if (!usingTokenFallback()) return;
+  if (accessTokenSecondsRemaining() > 60) return;
+  refreshInFlight ??= refreshSession().finally(() => { refreshInFlight = null; });
+  await refreshInFlight;
 }
 
 interface RequestOptions {
@@ -279,19 +342,16 @@ interface RequestOptions {
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 async function request<T>(path: string, { method = 'GET', body, auth = true }: RequestOptions = {}): Promise<T> {
-  const doFetch = () => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (MUTATING.has(method)) {
-      const csrf = readCsrfCookie();
-      if (csrf) headers['X-CSRF-Token'] = csrf;
-    }
-    return fetchWithTimeout(`${API_URL}${path}`, {
+  const doFetch = () =>
+    fetchWithTimeout(`${API_URL}${path}`, {
       method,
       credentials: 'include',
-      headers,
+      // Rebuilt on every attempt, not captured once: a retry after a
+      // refresh must use the *new* access token, not the expired one that
+      // caused the 401.
+      headers: { 'Content-Type': 'application/json', ...authHeaders(method) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-  };
 
   let res = await doFetch();
 
@@ -319,7 +379,14 @@ async function request<T>(path: string, { method = 'GET', body, auth = true }: R
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T;
   }
-  return res.json() as Promise<T>;
+
+  const data = await res.json();
+  // Login/register/social-sign-in/refresh all return the session tokens
+  // alongside setting the cookies. adoptTokens keeps them only if this
+  // browser dropped the cookies, so on Chrome/Firefox/Android this is a
+  // single boolean check and nothing is stored.
+  adoptTokens(data);
+  return data as T;
 }
 
 export const api = {

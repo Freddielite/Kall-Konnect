@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { api } from './api';
+import { getRefreshToken, clearStoredSession } from './session-store';
 
 export interface UserProfile {
   id: string;
@@ -75,10 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await api.post('/auth/logout', undefined, { auth: false });
+      // Where we hold the refresh token ourselves (cookie-blocked
+      // browsers) it has to be sent explicitly, or the server has nothing
+      // to revoke and the token stays valid until it expires.
+      const refreshToken = getRefreshToken();
+      await api.post('/auth/logout', refreshToken ? { refreshToken } : undefined, { auth: false });
     } catch {
       // best-effort — clear local state either way
     }
+    clearStoredSession();
     setUser(null);
     setSession(null);
   }, []);

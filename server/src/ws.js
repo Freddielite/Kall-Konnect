@@ -24,10 +24,19 @@ export function attachWebSocketServer(httpServer) {
   const wss = new WebSocketServer({ noServer: true });
 
   httpServer.on('upgrade', async (req, socket, head) => {
-    if (!req.url?.startsWith('/ws')) return; // let other upgrade handlers (if any) deal with it
+    // Path only — the URL may now carry a ?access_token=... query string.
+    if (!req.url || !/^\/ws(\?|$|\/)/.test(req.url)) return; // let other upgrade handlers (if any) deal with it
 
+    // The browser WebSocket API cannot set request headers, so a client
+    // whose cookies were blocked (iOS/Safari — see lib/session.js) has no
+    // way to send `Authorization` here. A query param is the only channel
+    // available. It is acceptable because this is an access token, not the
+    // refresh token: it expires in ACCESS_TOKEN_TTL_SECONDS (15 min by
+    // default) and cannot be used to mint a new one. Clients that do have
+    // working cookies never send it.
     const cookies = parseCookieHeader(req.headers.cookie);
-    const token = cookies[ACCESS_COOKIE];
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const token = cookies[ACCESS_COOKIE] ?? query.get('access_token') ?? undefined;
     const userId = token ? await verifyAccessToken(token) : null;
     if (!userId) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { WS_URL } from './api';
+import { WS_URL, ensureFreshAccessToken } from './api';
+import { getAccessToken } from './session-store';
 import { useAuth } from './auth-context';
 
 /** Opens a WebSocket authenticated with the current session and calls
@@ -19,8 +20,20 @@ export function useRealtime(onMessage: (event: { type: string }) => void) {
     let retryDelay = 1000;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const connect = () => {
-      socket = new WebSocket(`${WS_URL}/ws`);
+    // The WebSocket API can't set headers, so where cookies are blocked
+    // (iOS/Safari — see session-store.ts) the access token goes in the
+    // query string instead; the server accepts either. Refresh first if
+    // it's close to expiry: the handshake either succeeds or the socket is
+    // closed, there's no 401 to retry on the way a fetch has.
+    const connect = async () => {
+      await ensureFreshAccessToken();
+      if (closedByUs) return;
+
+      const token = getAccessToken();
+      const url = token
+        ? `${WS_URL}/ws?access_token=${encodeURIComponent(token)}`
+        : `${WS_URL}/ws`;
+      socket = new WebSocket(url);
       socket.onmessage = (event) => {
         try {
           onMessageRef.current(JSON.parse(event.data));
@@ -36,7 +49,7 @@ export function useRealtime(onMessage: (event: { type: string }) => void) {
       };
     };
 
-    connect();
+    void connect();
 
     return () => {
       closedByUs = true;
