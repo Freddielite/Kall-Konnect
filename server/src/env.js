@@ -39,7 +39,7 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
 
-  // App session tokens (email/password, Google, Apple all end up minting these)
+  // App session tokens (email/password and Google both end up minting these)
   jwtSecret: required('JWT_SECRET'),
   accessTokenTtlSeconds: Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 15 * 60), // 15 min
   refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30),
@@ -59,9 +59,6 @@ export const env = {
   // needs it). Points at the BACKEND, not the frontend.
   googleCalendarRedirectUri:
     process.env.GOOGLE_CALENDAR_REDIRECT_URI ?? 'http://localhost:4000/google-calendar/callback',
-
-  // Sign in with Apple
-  appleClientId: process.env.APPLE_CLIENT_ID ?? '', // your Services ID, e.g. com.wyntek.kallkonnect.web
 
   // MCP OAuth authorization server
   oauthAuthCodeTtlSeconds: Number(process.env.OAUTH_AUTH_CODE_TTL_SECONDS ?? 5 * 60),

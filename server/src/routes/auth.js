@@ -3,7 +3,6 @@ import { query, withTransaction } from '../db.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { signAccessToken, issueRefreshToken, rotateRefreshToken, revokeRefreshToken } from '../lib/tokens.js';
 import { verifyGoogleIdToken } from '../lib/google.js';
-import { verifyAppleIdToken } from '../lib/apple.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { setAuthCookies, clearAuthCookies, setCsrfCookie } from '../lib/cookies.js';
 import { readRefreshToken } from '../lib/session.js';
@@ -11,12 +10,12 @@ import { authLimiter } from '../middleware/rateLimit.js';
 
 export const authRouter = Router();
 
-async function createUserRow(client, { email, passwordHash, displayName, googleSub, appleSub, emailVerified }) {
+async function createUserRow(client, { email, passwordHash, displayName, googleSub, emailVerified }) {
   const { rows } = await client.query(
-    `INSERT INTO users (email, password_hash, display_name, google_sub, apple_sub, email_verified)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (email, password_hash, display_name, google_sub, email_verified)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id, email, display_name, email_verified`,
-    [email, passwordHash ?? null, displayName ?? null, googleSub ?? null, appleSub ?? null, Boolean(emailVerified)]
+    [email, passwordHash ?? null, displayName ?? null, googleSub ?? null, Boolean(emailVerified)]
   );
   const user = rows[0];
   // Equivalent of the old handle_new_user() trigger on auth.users.
@@ -111,40 +110,6 @@ authRouter.post('/google', async (req, res) => {
   } catch (err) {
     console.error('google sign-in error:', err);
     res.status(401).json({ error: 'Could not verify Google sign-in' });
-  }
-});
-
-// Frontend posts the Apple `id_token` from AppleID.auth.signIn() here.
-authRouter.post('/apple', async (req, res) => {
-  const { idToken, displayName } = req.body ?? {};
-  if (!idToken) return res.status(400).json({ error: 'idToken is required' });
-
-  try {
-    const { sub, email } = await verifyAppleIdToken(idToken);
-
-    const existing = await query(
-      'SELECT id FROM users WHERE apple_sub = $1 OR (email IS NOT NULL AND email = $2)',
-      [sub, email]
-    );
-    let userId = existing.rows[0]?.id;
-
-    if (!userId) {
-      // Apple only sends `email` on the very first sign-in; if it's missing
-      // (returning user re-consenting) we fall back to a synthetic
-      // placeholder email tied to their Apple subject id.
-      const effectiveEmail = email ?? `${sub}@apple.private`;
-      const user = await withTransaction((client) =>
-        createUserRow(client, { email: effectiveEmail, displayName, appleSub: sub, emailVerified: true })
-      );
-      userId = user.id;
-    } else {
-      await query('UPDATE users SET apple_sub = $1 WHERE id = $2 AND apple_sub IS NULL', [sub, userId]);
-    }
-
-    await issueSession(res, userId);
-  } catch (err) {
-    console.error('apple sign-in error:', err);
-    res.status(401).json({ error: 'Could not verify Apple sign-in' });
   }
 });
 

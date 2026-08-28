@@ -13,11 +13,10 @@ import { useAuth } from '@/lib/auth-context';
 import { SplashScreen } from '@/components/SplashScreen';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const APPLE_CLIENT_ID = import.meta.env.VITE_APPLE_CLIENT_ID as string | undefined;
 
 export default function Auth() {
   const navigate = useNavigate();
-  const { login, register, loginWithGoogle, loginWithApple } = useAuth();
+  const { login, register, loginWithGoogle } = useAuth();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -104,34 +103,6 @@ export default function Auth() {
       return;
     }
     window.google.accounts.id.prompt();
-  };
-
-  const handleAppleSignIn = async () => {
-    if (!APPLE_CLIENT_ID) {
-      toast.error('Apple sign-in is not configured (missing VITE_APPLE_CLIENT_ID).');
-      return;
-    }
-    if (!window.AppleID) {
-      toast.error('Apple sign-in is still loading — try again in a moment.');
-      return;
-    }
-    setLoading(true);
-    try {
-      window.AppleID.auth.init({
-        clientId: APPLE_CLIENT_ID,
-        scope: 'name email',
-        redirectURI: window.location.origin,
-        usePopup: true,
-      });
-      const result = await window.AppleID.auth.signIn();
-      await loginWithApple(result.authorization.id_token);
-      toast.success('Welcome!');
-      completeLogin(next);
-    } catch (err: unknown) {
-      toast.error(errorMessage(err, 'Could not sign in with Apple.'));
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (
@@ -283,18 +254,6 @@ export default function Auth() {
               />
             </svg>
             Sign in with Google
-          </Button>
-
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={handleAppleSignIn}
-            disabled={loading}
-          >
-            <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M17.05 20.28c-.98 1.32-2.09 2.5-3.56 2.53-1.46.04-1.88-.88-3.52-.88-1.63 0-2.14.85-3.49.91-1.4.06-2.47-1.35-3.45-2.68-1.88-2.63-3.3-7.45-1.38-10.7 1.3-2.27 3.64-3.71 6.17-3.75 1.5-.03 2.91.97 3.83.97.92 0 2.63-1.21 4.44-1.03.75.03 2.86.3 4.22 2.3-.11.07-2.52 1.45-2.49 4.33.03 3.46 3.04 4.61 3.07 4.63-.03.1-.48 1.63-1.57 3.25-.95 1.42-1.93 2.84-3.39 2.86-1.41.02-1.87-.9-3.48-.9-1.62 0-2.13.92-3.52.9-1.2-.02-2.05-.55-3.04-1.7zm-2.78-15.1c.72-1.04 1.21-2.48 1.07-3.91-1.04.04-2.3.69-3.05 1.57-.67.77-1.25 2.01-1.09 3.2 1.16.09 2.34-.74 3.07-1.86z" />
-            </svg>
-            Sign in with Apple
           </Button>
         </div>
       </Card>

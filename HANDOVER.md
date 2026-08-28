@@ -387,7 +387,7 @@ by `server/` (Express + plain Postgres). See `server/README.md` for the
 architecture table and setup steps. Frontend hooks/pages rewired to a new
 `lib/api.ts` fetch client + `lib/auth-context.tsx` + `lib/realtime.ts`
 (WebSocket). Scope decisions made along the way: full auth parity
-(email/password + Google + Apple + MCP OAuth), and WebSocket realtime kept
+(email/password + Google + MCP OAuth), and WebSocket realtime kept
 rather than dropped to plain refetch.
 
 Also fixed two real timezone bugs during the original bug-fix pass and
@@ -424,13 +424,13 @@ _All five items below were fixed as part of an auth-hardening pass._
   (`ws.js`) reads the same cookie off the upgrade request instead of a
   `?token=` query param.
 - ~~No email verification on signup.~~ **Fixed.** New `users.email_verified`
-  column (Google/Apple sign-ins are marked verified immediately; existing
+  column (Google sign-ins are marked verified immediately; existing
   accounts backfilled true). `POST /auth/verify-email`,
   `POST /auth/resend-verification`. Not enforced anywhere yet — login isn't
   gated on it, by design, to avoid locking anyone out. Settings shows a
   "resend link" banner when unverified.
 - ~~`auto_add_calendar_reminders` setting persists but does nothing.~~
-  **Fixed, pragmatically.** We don't have Google/Apple Calendar OAuth, so
+  **Fixed, pragmatically.** We don't have full calendar OAuth everywhere, so
   real two-way calendar sync is a bigger feature, not a gap-fix. Instead:
   when this is on, a `planned_call` reminder now emails the user a `.ics`
   invite (works with Google/Apple/Outlook — one-tap "add to calendar" from

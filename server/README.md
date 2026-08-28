@@ -4,7 +4,7 @@ Plain Express + Postgres backend, replacing Supabase entirely:
 
 | Old (Supabase)            | New (here)                                              |
 |----------------------------|----------------------------------------------------------|
-| `auth.users` + Supabase Auth | `users` table, `routes/auth.js` (email/password, Google, Apple) |
+| `auth.users` + Supabase Auth | `users` table, `routes/auth.js` (email/password, Google) |
 | Row Level Security (RLS)   | Every route filters by `req.userId` explicitly — see `middleware/requireAuth.js` |
 | Supabase Realtime          | Plain WebSockets — `ws.js`, `useRealtime()` on the frontend |
 | Edge Function + `pg_cron`  | `jobs/generateNotifications.js` + `jobs/cron.js` (node-cron) |
@@ -30,7 +30,7 @@ database).
    cp .env.example .env
    ```
    At minimum set `DATABASE_URL` and `JWT_SECRET` (any long random string).
-   Leave `GOOGLE_CLIENT_ID`/`APPLE_CLIENT_ID` blank if you don't need those
+   Leave `GOOGLE_CLIENT_ID` blank if you don't need that
    sign-in methods yet — the rest of the app works fine without them.
 
 3. Install and migrate:
@@ -93,8 +93,8 @@ bcrypt, which is what this backend's login also expects, so existing
 passwords should carry over untouched, but confirm it with a real login
 rather than assuming.
 
-Google/Apple-only accounts (no password set) migrate the same way — their
-`google_sub`/`apple_sub` gets pulled from `auth.identities`, so signing
+Google-only accounts (no password set) migrate the same way — their
+`google_sub` gets pulled from `auth.identities`, so signing
 back in with the same provider should link straight to their existing
 account and data.
 
@@ -109,22 +109,6 @@ account and data.
 3. Put the client ID in **both**:
    - `server/.env` → `GOOGLE_CLIENT_ID`
    - the frontend's `.env` → `VITE_GOOGLE_CLIENT_ID`
-
-## Sign in with Apple
-
-1. Apple Developer portal → Certificates, Identifiers & Profiles →
-   Identifiers → **Services IDs** → create one (this is your "client ID",
-   looks like `com.wyntek.kallkonnect.web`).
-2. Configure it with your domain and return URL (the return URL only
-   matters for the redirect-based flow; since the frontend uses
-   `usePopup: true`, Apple posts back to your page directly).
-3. Put the Services ID in **both**:
-   - `server/.env` → `APPLE_CLIENT_ID`
-   - the frontend's `.env` → `VITE_APPLE_CLIENT_ID`
-
-Note: Apple only sends the user's `email` on their very first sign-in ever
-for your client. If you need it on later sign-ins, you must have captured
-and stored it from that first callback.
 
 ## The MCP / OAuth flow, if you're testing it
 

@@ -25,7 +25,6 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
-  loginWithApple: (idToken: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<void>;
 }
@@ -69,11 +68,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchProfile();
   }, [fetchProfile]);
 
-  const loginWithApple = useCallback(async (idToken: string, displayName?: string) => {
-    await api.post('/auth/apple', { idToken, displayName }, { auth: false });
-    await fetchProfile();
-  }, [fetchProfile]);
-
   const logout = useCallback(async () => {
     try {
       // Where we hold the refresh token ourselves (cookie-blocked
@@ -96,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      session, user, loading, login, register, loginWithGoogle, loginWithApple, logout,
+      session, user, loading, login, register, loginWithGoogle, logout,
       updateDisplayName,
     }}>
       {children}

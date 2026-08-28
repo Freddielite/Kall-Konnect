@@ -167,7 +167,6 @@ so it must be the public **frontend** URL, never the backend's own address.
 | `VITE_WS_URL`             | `wss://api.wyntek.tech`     |
 | `VITE_REQUEST_TIMEOUT_MS` | `60000` if on Render free   |
 | `VITE_GOOGLE_CLIENT_ID`   | must match `GOOGLE_CLIENT_ID` on Render |
-| `VITE_APPLE_CLIENT_ID`    | must match `APPLE_CLIENT_ID` on Render  |
 
 `wss://`, not `ws://` — a plain `ws://` connection from an HTTPS page is
 blocked as mixed content.
@@ -198,12 +197,11 @@ for preview convenience.
 
 ## 8. OAuth redirect URIs
 
-If Google or Apple sign-in is live, update the provider consoles — they still
-point at your LAN IP or localhost:
+If Google sign-in is live, update the provider console — it still points at
+your LAN IP or localhost:
 
 - **Google Cloud Console** → Credentials → your Web client → Authorized
   JavaScript origins: add `https://app.wyntek.tech`
-- **Apple Developer** → your Services ID → domains and return URLs
 
 ---
 

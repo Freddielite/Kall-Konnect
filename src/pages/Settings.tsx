@@ -115,13 +115,6 @@ export default function Settings() {
     }
   };
 
-  const handleCalendarSync = (provider: string) => {
-    toast({
-      title: "Calendar sync initiated 📅",
-      description: `Connecting to ${provider}. This feature will sync birthdays and anniversaries.`,
-    });
-  };
-
   return (
     <>
       {signingOut && <SplashScreen fadeOut={signOutFadeOut} />}
@@ -342,14 +335,6 @@ export default function Settings() {
                     <span>Connect Google Calendar</span>
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-3 h-12 rounded-xl"
-                  onClick={() => handleCalendarSync('Apple Calendar')}
-                >
-                  <Calendar className="h-5 w-5" />
-                  <span>Connect Apple Calendar</span>
-                </Button>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="auto-add-reminders" className="flex-1">

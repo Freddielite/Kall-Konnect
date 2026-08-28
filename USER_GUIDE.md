@@ -14,7 +14,7 @@ deploying it, see `README.md` (local setup) and `DEPLOYING.md`
 
 ## 1. Creating an account
 
-Open the app and sign up with email/password, or with Google/Apple if
+Open the app and sign up with email/password, or with Google if
 those are configured for your deployment. A verification email is sent on
 signup; login isn't blocked while you're unverified, but Settings will
 show a banner with a "resend link" option until you confirm.
@@ -115,7 +115,7 @@ tracker, not KPI report.
   monthly). Each contact can also be set individually.
 - **Preferred call time** — morning / afternoon / evening / anytime, used
   to time reminders.
-- **Calendar Integration** — connect Google or Apple Calendar. When
+- **Calendar Integration** — connect Google Calendar. When
   enabled, a planned call sends you a `.ics` invite by email so it lands
   on your calendar with one tap — there isn't full two-way calendar sync.
 - **Theme** — switch to dark mode.
