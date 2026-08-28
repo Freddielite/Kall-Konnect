@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kall konnect - “Smart reminders that help you call, connect, and care — effortlessly.”</title>
+    <meta name="description" content="A warm, personal relationship management tool that helps you stay in touch with friends, family, and colleagues through meaningful phone calls.">
+    <meta name="author" content="Relationship Assistant" />
+
+    <!-- Paints the app's real background the instant the browser has the
+         HTML - before the JS bundle loads, parses, or mounts React - so
+         there's no flash of stark white ahead of the SplashScreen. Values
+         are duplicated from index.css's --background (light/dark), since
+         nothing from that stylesheet is available yet at this point. -->
+    <style>
+      html, body, #root { background-color: hsl(26 100% 97%); }
+      html.dark, html.dark body, html.dark #root { background-color: hsl(220 20% 12%); }
+    </style>
+    <script>
+      // Applies the "dark" class before first paint, matching next-themes'
+      // own storage key/logic (ThemeProvider in App.tsx), so the background
+      // color set above is the *correct* one immediately instead of
+      // guessing light and flashing to dark once React mounts.
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (stored === 'dark' || (stored !== 'light' && prefersDark)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    
+    
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@lovable_dev" />
+    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta property="og:title" content="kall konnect - “Smart reminders that help you call, connect, and care — effortlessly.”">
+  <meta name="twitter:title" content="kall konnect - “Smart reminders that help you call, connect, and care — effortlessly.”">
+  <meta property="og:description" content="A warm, personal relationship management tool that helps you stay in touch with friends, family, and colleagues through meaningful phone calls.">
+  <meta name="twitter:description" content="A warm, personal relationship management tool that helps you stay in touch with friends, family, and colleagues through meaningful phone calls.">
+</head>
+
+  <body>
+    <div id="root"></div>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js" async defer></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

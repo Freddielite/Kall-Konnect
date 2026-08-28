@@ -1,0 +1,31 @@
+{
+  "name": "kall-konnect-server",
+  "version": "1.0.0",
+  "description": "Kall Konnect backend: Express + plain Postgres, replacing Supabase Auth/RLS/Realtime/Edge Functions.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/migrate.js",
+    "email-doctor": "node scripts/email-doctor.mjs",
+    "sync-ip": "node ../scripts/sync-lan-ip.mjs",
+    "predev": "node ../scripts/sync-lan-ip.mjs || true"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.1",
+    "jose": "^5.9.6",
+    "node-cron": "^3.0.3",
+    "pg": "^8.12.0",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0"
+  }
+}

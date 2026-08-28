@@ -1,0 +1,373 @@
+import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/lib/auth-context';
+import { useNavigate } from 'react-router-dom';
+import { usePreferences } from '@/hooks/usePreferences';
+import { Input } from '@/components/ui/input';
+import { useTheme } from 'next-themes';
+import { useState, useEffect } from 'react';
+import { errorMessage } from '@/lib/utils';
+import { enablePushNotifications, disablePushNotifications } from '@/lib/push';
+import { SplashScreen } from '@/components/SplashScreen';
+import { motion } from 'framer-motion';
+
+export default function Settings() {
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const { preferences, loading, updatePreferences } = usePreferences();
+  const { theme, setTheme } = useTheme();
+  const { logout, user, updateDisplayName } = useAuth();
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameSaving, setNameSaving] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutFadeOut, setSignOutFadeOut] = useState(false);
+
+  useEffect(() => {
+    if (user?.displayName) setNameDraft(user.displayName);
+  }, [user?.displayName]);
+
+  const handleSaveName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === user?.displayName) return;
+    setNameSaving(true);
+    try {
+      await updateDisplayName(trimmed);
+      toast({ title: 'Name updated' });
+    } catch (error: unknown) {
+      toast({ title: 'Could not update name', description: errorMessage(error), variant: 'destructive' });
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const handleNotificationsToggle = async (checked: boolean) => {
+    updatePreferences({ notifications_enabled: checked });
+    if (checked) {
+      const result = await enablePushNotifications();
+      if (!result.ok) {
+        toast({
+          title: 'Reminders will still show in-app',
+          description: result.reason,
+        });
+      }
+    } else {
+      await disablePushNotifications();
+    }
+  };
+
+  const handleLogout = async () => {
+    setSigningOut(true);
+    try {
+      await logout();
+      // Let the splash sit a moment before fading into the login page.
+      setTimeout(() => setSignOutFadeOut(true), 900);
+      setTimeout(() => navigate('/auth'), 1400);
+    } catch (error: unknown) {
+      setSigningOut(false);
+      toast({
+        title: "Error signing out",
+        description: errorMessage(error),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCalendarSync = (provider: string) => {
+    toast({
+      title: "Calendar sync initiated 📅",
+      description: `Connecting to ${provider}. This feature will sync birthdays and anniversaries.`,
+    });
+  };
+
+  return (
+    <>
+      {signingOut && <SplashScreen fadeOut={signOutFadeOut} />}
+      <motion.div
+        className="min-h-screen pb-24 bg-gradient-soft"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+      >
+      {/* Header */}
+      <div className="gradient-warm p-6 pb-8 shadow-soft">
+        <div className="max-w-lg mx-auto">
+          <div className="flex items-center gap-3 mb-2">
+            <SettingsIcon className="h-8 w-8 text-white" />
+            <h1 className="text-3xl font-bold text-white">Settings</h1>
+          </div>
+          <p className="text-white/90 text-sm">Customize your experience</p>
+        </div>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 pt-6">
+        {/* Account */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <User className="h-5 w-5 text-primary" />
+            Account
+          </h3>
+          <Card className="p-5 shadow-soft border-2 space-y-3">
+            <div>
+              <Label htmlFor="display-name">Display Name</Label>
+              <p className="text-sm text-muted-foreground mb-2">This is how the app greets you.</p>
+              <div className="flex gap-2">
+                <Input
+                  id="display-name"
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  placeholder="Your name"
+                />
+                <Button
+                  onClick={handleSaveName}
+                  disabled={nameSaving || !nameDraft.trim() || nameDraft.trim() === user?.displayName}
+                >
+                  {nameSaving ? 'Saving...' : 'Save'}
+                </Button>
+              </div>
+            </div>
+            {user?.email && <p className="text-sm text-muted-foreground">{user.email}</p>}
+          </Card>
+        </div>
+
+        {/* Notifications */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Bell className="h-5 w-5 text-primary" />
+            Notifications
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="notifications-enabled" className="flex-1">
+                  <div>
+                    <p className="font-medium">Enable Notifications</p>
+                    <p className="text-sm text-muted-foreground">Receive scheduled reminders</p>
+                  </div>
+                </Label>
+                <Switch
+                  id="notifications-enabled"
+                  checked={preferences.notifications_enabled}
+                  onCheckedChange={handleNotificationsToggle}
+                  disabled={loading}
+                />
+              </div>
+              
+              <div>
+                <Label className="mb-2 block">Notification Frequency</Label>
+                <Select
+                  value={preferences.notification_frequency}
+                  onValueChange={(value: 'daily' | 'weekly' | 'monthly') =>
+                    updatePreferences({ notification_frequency: value })
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  How often to check for planned calls and inactive contacts
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="inactivity-days" className="mb-2 block">
+                  Inactivity Alert Threshold (days)
+                </Label>
+                <Input
+                  id="inactivity-days"
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={preferences.inactivity_days}
+                  onChange={(e) =>
+                    updatePreferences({ inactivity_days: parseInt(e.target.value) || 14 })
+                  }
+                  disabled={loading}
+                  className="rounded-xl"
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Alert when you haven't called a contact in this many days
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Call Preferences */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-primary" />
+            Call Preferences
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <div className="space-y-4">
+              <div>
+                <Label className="mb-2 block">Default Call Frequency</Label>
+                <Select
+                  value={preferences.call_frequency}
+                  onValueChange={(value: 'weekly' | 'biweekly' | 'monthly') =>
+                    updatePreferences({ call_frequency: value })
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Bi-weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="mb-2 block">Preferred Call Time</Label>
+                <Select
+                  value={preferences.preferred_call_time}
+                  onValueChange={(value: 'morning' | 'afternoon' | 'evening' | 'anytime') =>
+                    updatePreferences({ preferred_call_time: value })
+                  }
+                  disabled={loading}
+                >
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="morning">Morning (8am - 12pm)</SelectItem>
+                    <SelectItem value="afternoon">Afternoon (12pm - 5pm)</SelectItem>
+                    <SelectItem value="evening">Evening (5pm - 9pm)</SelectItem>
+                    <SelectItem value="anytime">Anytime</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Calendar Integration */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <LinkIcon className="h-5 w-5 text-primary" />
+            Calendar Integration
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Sync birthdays, anniversaries, and reminders with your calendar
+                </p>
+              </div>
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-12 rounded-xl"
+                  onClick={() => handleCalendarSync('Google Calendar')}
+                >
+                  <Calendar className="h-5 w-5" />
+                  <span>Connect Google Calendar</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-12 rounded-xl"
+                  onClick={() => handleCalendarSync('Apple Calendar')}
+                >
+                  <Calendar className="h-5 w-5" />
+                  <span>Connect Apple Calendar</span>
+                </Button>
+              </div>
+              <div className="flex items-center justify-between pt-2">
+                <Label htmlFor="auto-add-reminders" className="flex-1">
+                  <div>
+                    <p className="font-medium text-sm">Auto-add call reminders</p>
+                    <p className="text-xs text-muted-foreground">Add scheduled calls to calendar</p>
+                  </div>
+                </Label>
+                <Switch
+                  id="auto-add-reminders"
+                  checked={preferences.auto_add_calendar_reminders}
+                  onCheckedChange={(checked) =>
+                    updatePreferences({ auto_add_calendar_reminders: checked })
+                  }
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Appearance */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Moon className="h-5 w-5 text-primary" />
+            Appearance
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="dark-mode" className="flex-1">
+                <div>
+                  <p className="font-medium">Dark Mode</p>
+                  <p className="text-sm text-muted-foreground">Switch to dark theme</p>
+                </div>
+              </Label>
+              <Switch
+                id="dark-mode"
+                checked={theme === 'dark'}
+                onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+              />
+            </div>
+          </Card>
+        </div>
+
+        {/* About */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Info className="h-5 w-5 text-primary" />
+            About
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Version</p>
+                <p className="text-foreground">1.0.0</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Made with</p>
+                <p className="text-foreground">💙 for better relationships</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Encouragement */}
+        <Card className="p-6 shadow-soft border-2 bg-accent/5 border-accent/20 mb-6">
+          <p className="text-center text-sm text-foreground">
+            Remember: A 5-minute call can make someone's day. Keep being awesome! ✨
+          </p>
+        </Card>
+
+        {/* Logout Button */}
+        <Button
+          variant="outline"
+          className="w-full gap-2 h-12 rounded-2xl border-2 border-destructive/20 text-destructive hover:bg-destructive/10 mb-6"
+          onClick={handleLogout}
+        >
+          <LogOut className="h-5 w-5" />
+          Sign Out
+        </Button>
+      </div>
+    </motion.div>
+    </>
+  );
+}

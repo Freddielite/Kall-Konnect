@@ -1,0 +1,76 @@
+# ── Secrets ────────────────────────────────────────────────────────────
+# server/.env holds JWT_SECRET, DATABASE_URL, SENDGRID_API_KEY and the
+# VAPID private key. It must never be committed. scripts/sync-lan-ip.mjs
+# also rewrites both .env files on every `npm run dev`, so without this
+# they'd show up as modified constantly.
+.env
+.env.*
+server/.env
+server/.env.*
+
+# ...but the templates are meant to be tracked.
+!.env.example
+!server/.env.example
+!.env.*.example
+
+# Certificates and keys, if you ever add local HTTPS
+*.pem
+*.key
+*.crt
+*.p12
+
+# ── Dependencies ───────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/install-state.gz
+
+# ── Build output ───────────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+*.local
+
+# ── Caches ─────────────────────────────────────────────────────────────
+.vite/
+node_modules/.vite/
+.eslintcache
+.cache/
+*.tsbuildinfo
+
+# ── Hosting ────────────────────────────────────────────────────────────
+# Local state written by `vercel dev` / `vercel link`. vercel.json IS
+# tracked — it carries the SPA rewrite rules.
+.vercel/
+.netlify/
+
+# ── Logs ───────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Testing ────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Editors ────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+
+# ── OS ─────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini

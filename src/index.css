@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here.
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Warm cream background */
+    --background: 26 100% 97%;
+    --foreground: 220 15% 25%;
+
+    /* White cards with warm text */
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 25%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 25%;
+
+    /* Warm coral primary */
+    --primary: 14 100% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Neutral warm secondary */
+    --secondary: 30 25% 92%;
+    --secondary-foreground: 220 15% 25%;
+
+    /* Soft muted tones */
+    --muted: 25 40% 94%;
+    --muted-foreground: 220 15% 45%;
+
+    /* Warm peach accent */
+    --accent: 15 85% 70%;
+    --accent-foreground: 220 15% 25%;
+
+    /* Soft destructive */
+    --destructive: 0 70% 65%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Warm borders */
+    --border: 25 30% 90%;
+    --input: 25 30% 90%;
+    --ring: 14 100% 67%;
+
+    /* Success green */
+    --success: 145 60% 60%;
+    --success-foreground: 0 0% 100%;
+
+    --radius: 1rem;
+
+    /* Warm coral-to-pink header gradient */
+    --gradient-warm-start: 16 100% 72%;
+    --gradient-warm-end: 346 100% 74%;
+
+    /* Platform brand colors */
+    --whatsapp: 142 68% 50%;
+    --whatsapp-foreground: 0 0% 100%;
+
+    --instagram-start: 35 100% 73%;
+    --instagram-mid: 326 70% 48%;
+    --instagram-end: 250 60% 50%;
+    --instagram-foreground: 0 0% 100%;
+
+    --snapchat: 55 100% 56%;
+    --snapchat-foreground: 220 15% 20%;
+
+    /* Relationship tag colors: light bg + darker text */
+    --family-bg: 15 60% 92%;
+    --family-text: 15 50% 32%;
+    --friend-bg: 145 50% 90%;
+    --friend-text: 145 50% 25%;
+    --colleague-bg: 210 60% 91%;
+    --colleague-text: 210 50% 32%;
+    --acquaintance-bg: 260 50% 92%;
+    --acquaintance-text: 260 45% 35%;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Warm dark mode */
+    --background: 220 20% 12%;
+    --foreground: 30 20% 90%;
+
+    --card: 220 20% 15%;
+    --card-foreground: 30 20% 90%;
+
+    --popover: 220 20% 15%;
+    --popover-foreground: 30 20% 90%;
+
+    --primary: 14 100% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 30 15% 22%;
+    --secondary-foreground: 30 20% 90%;
+
+    --muted: 220 20% 22%;
+    --muted-foreground: 220 15% 65%;
+
+    --accent: 15 80% 65%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 20% 22%;
+    --input: 220 20% 22%;
+    --ring: 14 100% 67%;
+    
+    --success: 145 55% 50%;
+    --success-foreground: 0 0% 100%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold;
+  }
+}
+
+@layer utilities {
+  .gradient-warm {
+    background: linear-gradient(135deg, hsl(var(--gradient-warm-start)) 0%, hsl(var(--gradient-warm-end)) 100%);
+  }
+
+  .gradient-instagram {
+    background: linear-gradient(135deg, hsl(var(--instagram-start)) 0%, hsl(var(--instagram-mid)) 50%, hsl(var(--instagram-end)) 100%);
+  }
+  
+  .gradient-soft {
+    background: linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted)) 100%);
+  }
+
+  .shadow-soft {
+    box-shadow: 0 8px 24px -8px hsl(var(--primary) / 0.15);
+  }
+
+  .shadow-warm {
+    box-shadow: 0 4px 16px -4px hsl(var(--accent) / 0.2);
+  }
+
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
