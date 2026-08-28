@@ -1,6 +1,21 @@
 // Kall Konnect service worker — handles Web Push delivery and notification
-// clicks. Registered on demand from src/lib/push.ts when the user enables
-// notifications; doesn't do anything else (no offline caching).
+// clicks, and satisfies the browser's PWA installability requirements (an
+// active service worker with a fetch handler). Registered unconditionally
+// on page load from src/main.tsx. Still does no offline caching — fetch is
+// a pure pass-through to the network.
+
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', () => {
+  // No-op: required so the browser recognizes this as a "real" service
+  // worker for install-prompt purposes. Everything still goes to network.
+});
 
 self.addEventListener('push', (event) => {
   let data = {};
