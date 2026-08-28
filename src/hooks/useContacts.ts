@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useRealtime } from '@/lib/realtime';
 import { Contact, CallNote } from '@/types/contact';
@@ -18,15 +19,31 @@ interface SpecialDateRow { id: string; contact_id: string; label: string; date: 
 
 const UNDO_WINDOW_MS = 5000;
 
-export function useContacts() {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loading, setLoading] = useState(true);
-  // Contacts optimistically hidden after delete, pending the undo window.
-  const pendingDeletes = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+/** One cache entry shared by every component that calls useContacts().
+ * Dashboard, Contacts and Stats all read the same data, so they should all
+ * read the same copy of it. */
+export const CONTACTS_QUERY_KEY = ['contacts'] as const;
 
-  const fetchContacts = useCallback(async () => {
-    try {
-      const [contactsData, notesData, specialDatesData] = await Promise.all([
+/** Deletes waiting out their undo window, keyed by contact id.
+ *
+ * Module-level rather than per-hook because the cache is now shared: if
+ * this lived in a ref, a contact hidden on the Contacts page would still be
+ * visible on the Dashboard, and a refetch triggered from anywhere would
+ * resurrect it. There is one queryFn for the shared key, so filtering
+ * there covers every reader at once. */
+const pendingDeletes = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** How many mounted components are using this hook. The pending deletes are
+ * flushed when the count reaches zero — i.e. the user has navigated away
+ * from every screen that could still offer Undo — which preserves the old
+ * per-component unmount behaviour now that the state is shared. */
+let activeConsumers = 0;
+
+/** Fetches and reshapes the three endpoints the UI treats as one thing.
+ * Lives outside the hook so React Query can own it: one call serves every
+ * mounted consumer, instead of each page firing its own three requests. */
+async function fetchContactsData(): Promise<Contact[]> {
+  const [contactsData, notesData, specialDatesData] = await Promise.all([
         api.get<ContactRow[]>('/contacts'),
         api.get<CallNoteRow[]>('/call-notes'),
         api.get<SpecialDateRow[]>('/special-dates'),
@@ -69,34 +86,53 @@ export function useContacts() {
         };
       });
 
-      // Don't let a refetch (e.g. a realtime ping) resurrect a contact that's
-      // still sitting in its undo window on this client.
-      setContacts(transformedContacts.filter((c) => !pendingDeletes.current.has(c.id)));
-    } catch (error: unknown) {
-      toast.error('Failed to load contacts: ' + errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Don't let a refetch (e.g. a realtime ping) resurrect a contact that's
+  // still sitting in its undo window on this client.
+  return transformedContacts.filter((c) => !pendingDeletes.has(c.id));
+}
 
+export function useContacts() {
+  const queryClient = useQueryClient();
+
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: CONTACTS_QUERY_KEY,
+    queryFn: fetchContactsData,
+  });
+
+  const contacts = data ?? [];
+
+  // isPending is only true when there is nothing cached yet, so the full-page
+  // "Loading contacts..." state now appears on the first load of the session
+  // rather than on every tab switch.
+  const loading = isPending;
+
+  // useQuery has no onError callback in v5, so the toast moves here. Keyed on
+  // the error object, so a persistent failure doesn't re-toast on every render.
   useEffect(() => {
-    fetchContacts();
-  }, [fetchContacts]);
+    if (error) toast.error('Failed to load contacts: ' + errorMessage(error));
+  }, [error]);
+
+  /** Marks the shared cache stale so every mounted screen updates together. */
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: CONTACTS_QUERY_KEY });
 
   // Replaces the old Supabase Realtime channel — the server pings us over
   // WebSocket whenever contacts/notes/special dates change, and we refetch.
   useRealtime((event) => {
-    if (event.type === 'contacts') fetchContacts();
+    if (event.type === 'contacts') invalidate();
   });
 
-  // Flush any pending deletes on unmount instead of silently dropping them.
+  // Flush any pending deletes once nothing is using this hook any more,
+  // instead of silently dropping them.
   useEffect(() => {
-    const pending = pendingDeletes.current;
+    activeConsumers += 1;
     return () => {
-      pending.forEach((timeoutId, id) => {
+      activeConsumers -= 1;
+      if (activeConsumers > 0) return; // another screen can still offer Undo
+      pendingDeletes.forEach((timeoutId, id) => {
         clearTimeout(timeoutId);
         api.delete(`/contacts/${id}`).catch(() => {});
       });
+      pendingDeletes.clear();
     };
   }, []);
 
@@ -131,7 +167,7 @@ export function useContacts() {
       }
 
       toast.success('Contact added successfully!');
-      fetchContacts();
+      invalidate();
     } catch (error: unknown) {
       toast.error('Failed to add contact: ' + errorMessage(error));
     }
@@ -170,7 +206,7 @@ export function useContacts() {
         });
       }
 
-      fetchContacts();
+      invalidate();
     } catch (error: unknown) {
       toast.error('Failed to update contact: ' + errorMessage(error));
     }
@@ -181,37 +217,40 @@ export function useContacts() {
     if (!contact) return;
 
     // A delete already pending for this contact (e.g. double tap) — ignore.
-    if (pendingDeletes.current.has(id)) return;
+    if (pendingDeletes.has(id)) return;
 
     // Optimistically hide it immediately; the actual API call is deferred
-    // until the undo window closes.
-    setContacts((prev) => prev.filter((c) => c.id !== id));
+    // until the undo window closes. Writing to the shared cache means every
+    // mounted screen hides it at the same moment.
+    queryClient.setQueryData<Contact[]>(CONTACTS_QUERY_KEY, (prev) =>
+      (prev ?? []).filter((c) => c.id !== id)
+    );
 
     const commit = async () => {
-      pendingDeletes.current.delete(id);
+      pendingDeletes.delete(id);
       try {
         await api.delete(`/contacts/${id}`);
       } catch (error: unknown) {
         toast.error('Failed to delete contact: ' + errorMessage(error));
-        fetchContacts(); // resync — the optimistic removal was wrong
+        invalidate(); // resync — the optimistic removal was wrong
       }
     };
 
     const timeoutId = setTimeout(commit, UNDO_WINDOW_MS);
-    pendingDeletes.current.set(id, timeoutId);
+    pendingDeletes.set(id, timeoutId);
 
     toast(`${contact.name} deleted`, {
       duration: UNDO_WINDOW_MS,
       action: {
         label: 'Undo',
         onClick: () => {
-          const pending = pendingDeletes.current.get(id);
+          const pending = pendingDeletes.get(id);
           if (pending) {
             clearTimeout(pending);
-            pendingDeletes.current.delete(id);
+            pendingDeletes.delete(id);
           }
-          setContacts((prev) =>
-            prev.some((c) => c.id === id) ? prev : [...prev, contact]
+          queryClient.setQueryData<Contact[]>(CONTACTS_QUERY_KEY, (prev) =>
+            (prev ?? []).some((c) => c.id === id) ? (prev ?? []) : [...(prev ?? []), contact]
           );
         },
       },
@@ -240,6 +279,8 @@ export function useContacts() {
     updateContact,
     deleteContact,
     addCallNote,
-    refreshContacts: fetchContacts,
+    // Forces a network round trip regardless of staleness — pull-to-refresh
+    // means "go and check now", not "re-read what you already have".
+    refreshContacts: refetch,
   };
 }

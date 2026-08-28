@@ -20,7 +20,35 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { SplashScreen } from "./components/SplashScreen";
 import { safeNext } from "./lib/next-redirect";
 
-const queryClient = new QueryClient();
+/**
+ * Cached data is what makes tab switches instant. The defaults below are
+ * tuned for this app specifically:
+ *
+ * staleTime — how long fetched data is reused without a background refetch.
+ *   Five minutes is safe here because the server pushes a WebSocket ping on
+ *   every change and useContacts invalidates on it, so edits show up
+ *   immediately regardless. Without that push this would need to be much
+ *   shorter.
+ * gcTime — how long an unused entry survives before being dropped. Longer
+ *   than staleTime so navigating away and back reuses the data instead of
+ *   refetching from scratch.
+ * retry — one retry, not the default three. The API client already waits up
+ *   to 60s for a sleeping Render instance, so three retries could leave a
+ *   spinner up for minutes before showing the user an error.
+ * refetchOnWindowFocus — returning to the app is exactly when data is most
+ *   likely to have gone stale, and this refetches in the background without
+ *   clearing what's on screen.
+ */
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      retry: 1,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
 
 function AppRoutes() {
   const { session, loading } = useAuth();
