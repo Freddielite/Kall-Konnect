@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>kall konnect - “Smart reminders that help you call, connect, and care — effortlessly.”</title>
     <meta name="description" content="A warm, personal relationship management tool that helps you stay in touch with friends, family, and colleagues through meaningful phone calls.">
     <meta name="author" content="Relationship Assistant" />
@@ -11,11 +11,25 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#fff5eb" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1e2230" media="(prefers-color-scheme: dark)" />
+    <!-- A single static color, not two media-query-tied ones — the app's
+         theme (light/dark) is a manual in-app toggle independent of the
+         OS-level color-scheme, so a prefers-color-scheme-based theme-color
+         can end up mismatched with what's actually on screen (status bar
+         stays light while the app itself is dark, or vice versa). Using
+         the brand coral instead — the same color as every page's top
+         gradient-warm header — means the status bar always blends with
+         real on-screen content no matter which theme is active. -->
+    <meta name="theme-color" content="#FF9670" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- black-translucent: status bar becomes transparent and page content
+         draws underneath it (paired with viewport-fit=cover above and the
+         safe-area padding in index.css), instead of "default"'s solid white
+         bar. Since the coral header (or the plain background on pages
+         without one) already sits at the very top, this makes the status
+         bar show whatever's actually there — never a mismatched white
+         strip — which is the effect being aimed for. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Kall Konnect" />
 
     <!-- Paints the app's real background the instant the browser has the

@@ -130,7 +130,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen pb-24 flex items-center justify-center">
+      <div className="min-h-screen pb-nav-safe flex items-center justify-center">
         <div className="text-center">
           <div className="animate-pulse text-muted-foreground">Loading your connections...</div>
         </div>
@@ -140,7 +140,7 @@ export default function Dashboard() {
 
   return (
     <motion.div
-      className="min-h-screen gradient-soft pb-24"
+      className="min-h-screen gradient-soft pb-nav-safe"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}

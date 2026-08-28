@@ -111,7 +111,7 @@ export default function Settings() {
     <>
       {signingOut && <SplashScreen fadeOut={signOutFadeOut} />}
       <motion.div
-        className="min-h-screen pb-24 bg-gradient-soft"
+        className="min-h-screen pb-nav-safe bg-gradient-soft"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}

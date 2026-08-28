@@ -141,12 +141,43 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground font-sans antialiased;
+    /* App-like touch feel, not a browser tab: */
+    touch-action: manipulation; /* kills double-tap-to-zoom without breaking scroll — more reliable than user-scalable=no alone, especially outside standalone mode */
+    overscroll-behavior-y: contain; /* stops the rubber-band bounce from revealing the browser UI / a blank edge behind the page */
+    -webkit-tap-highlight-color: transparent; /* removes the gray flash Android/iOS draw on every tap */
+    -webkit-text-size-adjust: 100%; /* stops iOS auto-bumping font size on rotation, which fights a fixed layout */
+  }
+
+  /* Safe-area padding for the iOS status bar (now transparent — see
+     apple-mobile-web-app-status-bar-style in index.html) and the home
+     indicator. Applied at the body/nav level rather than per-page so every
+     screen gets it automatically. No-ops on Android/desktop, where these
+     env() vars are 0. */
+  body {
+    padding-top: env(safe-area-inset-top);
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold;
+  }
+
+  /* No text selection or long-press copy/share callouts anywhere by
+     default — the app should feel like a native app, not a webpage —
+     except inside anything actually meant to be typed into or edited. */
+  html, body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
   }
 }
 
@@ -169,6 +200,14 @@ All colors MUST be HSL.
 
   .shadow-warm {
     box-shadow: 0 4px 16px -4px hsl(var(--accent) / 0.2);
+  }
+
+  /* Bottom-nav clearance for scrollable page content. Same 6rem as the old
+     flat pb-24 on devices with no home-indicator inset (env() resolves to
+     0), but grows on notched iPhones to match BottomNav's own safe-area
+     padding, so the last card in a list is never covered by the nav. */
+  .pb-nav-safe {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom));
   }
 
   .transition-smooth {

@@ -38,7 +38,10 @@ export function BottomNav() {
   }, [location.pathname]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-card border-t-2 border-border shadow-lg z-50">
+    <nav
+      className="fixed bottom-0 left-0 right-0 bg-card border-t-2 border-border shadow-lg z-50"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       <div className="max-w-lg mx-auto px-4">
         <div className="relative flex justify-around items-center h-20" ref={navRef}>
           {indicator && (

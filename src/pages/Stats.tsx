@@ -70,7 +70,7 @@ export default function Stats() {
 
   return (
     <motion.div
-      className="min-h-screen pb-24 bg-background"
+      className="min-h-screen pb-nav-safe bg-background"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
