@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "tech.wyntek.kallkonnect",
+    "sha256_cert_fingerprints": ["39:51:D3:BC:01:20:8B:84:61:DB:51:92:E0:76:D0:6B:EC:37:B0:55:DB:73:96:D6:2A:28:41:94:3C:C1:CD:37"]
+  }
+}]
