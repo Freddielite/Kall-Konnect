@@ -74,12 +74,14 @@ interface ContactCardProps {
   followUpFlagged?: boolean;
   /** Day/time window this contact's calls actually tend to land in, e.g. "weekends evenings". */
   bestTime?: string | null;
+  /** Typical call length learned from real post-call durations, e.g. "~12 min" (see lib/callLength). */
+  typicalCallLength?: string | null;
   /** Set when the real call rhythm has drifted from contact.callFrequency. */
   suggestedFrequency?: Contact['callFrequency'] | null;
   onUpdateFrequency?: (contactId: string, frequency: Contact['callFrequency']) => void;
 }
 
-export function ContactCard({ contact, occasion, conversationStarter, onCallMade, onToggleFavorite, onReschedule, onEditTemplate, onEditContact, onDeleteContact, onDismiss, isLowConfidence, followUpFlagged, bestTime, suggestedFrequency, onUpdateFrequency }: ContactCardProps) {
+export function ContactCard({ contact, occasion, conversationStarter, onCallMade, onToggleFavorite, onReschedule, onEditTemplate, onEditContact, onDeleteContact, onDismiss, isLowConfidence, followUpFlagged, bestTime, typicalCallLength, suggestedFrequency, onUpdateFrequency }: ContactCardProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const OccasionIcon = occasion?.type === 'birthday' ? Gift : occasion?.type === 'anniversary' ? CalendarHeart : CalendarDays;
   const occasionWhen = occasion
@@ -98,8 +100,15 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
     return phone.replace(/[\s\-+]/g, '');
   };
 
+  // Same-tab navigation, not window.open('_blank'). On iOS, _blank on a
+  // tel:/wa.me link opens a genuine new empty Safari tab behind the native
+  // app handoff - when the user returns from the call, they land on that
+  // blank tab instead of back in the app. location.href avoids the stray
+  // tab entirely: the OS intercepts these schemes and hands off to the
+  // native app (or falls back to loading the URL right here) without ever
+  // spawning a second tab.
   const openLink = (url: string) => {
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.location.href = url;
   };
 
   const handlePhoneCall = () => {
@@ -275,6 +284,12 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
       {bestTime && (
         <p className="text-xs text-muted-foreground mb-3">
           You usually reach {contact.name.split(' ')[0]} best on {bestTime}
+        </p>
+      )}
+
+      {typicalCallLength && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Calls with {contact.name.split(' ')[0]} usually run {typicalCallLength}
         </p>
       )}
 

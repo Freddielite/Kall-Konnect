@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ContactCard } from '@/components/ContactCard';
 import { AddContactDialog } from '@/components/AddContactDialog';
@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getDismissedToday, dismissContactToday } from '@/lib/localDismiss';
 import { buildFollowUpVocabulary, matchFollowUpSignal } from '@/lib/noteSignals';
 import { computeCallStreak } from '@/lib/streaks';
+import { isQuickReturn } from '@/lib/callOutcome';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,16 @@ export default function Dashboard() {
   const { reconnectionSuggestions } = useCallAnalytics(contacts);
   const [noteDialog, setNoteDialog] = useState<{ open: boolean; contactId: string; platform: string } | null>(null);
   const [note, setNote] = useState('');
+  // A call link was just tapped (tel:/wa.me) and we're waiting to see if the
+  // user actually leaves the app for it. hiddenAt is set once the page
+  // visibility flips to hidden - that's the real "call started" moment,
+  // since tapping the link itself doesn't leave the page (the OS's native
+  // "Call Sam?" confirmation sheet doesn't trigger a visibility change).
+  const [pendingCall, setPendingCall] = useState<{ contactId: string; platform: string; hiddenAt: number | null } | null>(null);
+  // Measured time-away for the call the note dialog is currently open for,
+  // in whole minutes - fed straight into the existing (previously unused)
+  // CallNote.duration field when the note is saved.
+  const [callDurationMinutes, setCallDurationMinutes] = useState<number | null>(null);
   const [rescheduleDialog, setRescheduleDialog] = useState<{ open: boolean; contactId: string | null }>({ open: false, contactId: null });
   const [templateDialog, setTemplateDialog] = useState<{ open: boolean; contactId: string | null }>({ open: false, contactId: null });
   // "Not now" on a suggestion - local-only, resurfaces tomorrow. See lib/localDismiss.
@@ -70,12 +81,69 @@ export default function Dashboard() {
   };
 
   const handleCallMade = (contactId: string, platform: string) => {
-    setNoteDialog({ open: true, contactId, platform });
+    setPendingCall({ contactId, platform, hiddenAt: null });
     toast({
-      title: "Call initiated",
-      description: `Opening ${platform}...`,
+      title: "Calling...",
+      description: `Opening ${platform} - we'll check back in when you're done.`,
     });
   };
+
+  // Tapping a card in the "Upcoming Check-ins" strip logs a note directly
+  // without placing a real call, so there's no app-hidden/app-visible cycle
+  // to detect - it just opens the note dialog the way calls used to before
+  // the visibility-based flow below existed.
+  const handleLogCallManually = (contactId: string, platform: string) => {
+    setCallDurationMinutes(null);
+    setNoteDialog({ open: true, contactId, platform });
+  };
+
+  // Detects the user actually returning to the app after a real call
+  // (see pendingCall above) and decides what to do about it:
+  //  - never actually left (native confirm sheet was cancelled): nothing
+  //    happened, so nothing to log.
+  //  - left for less than QUICK_RETURN_THRESHOLD_MS: the call almost
+  //    certainly didn't connect - skip the prompt and skip feeding this
+  //    into the learning engine, rather than nagging over a dropped/
+  //    cancelled call.
+  //  - left longer than that: a real call plausibly happened - open the
+  //    existing note dialog, now on return instead of at tap-time, and
+  //    carry the measured time away through as the note's duration.
+  useEffect(() => {
+    if (!pendingCall) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setPendingCall(prev =>
+          prev && prev.hiddenAt == null ? { ...prev, hiddenAt: Date.now() } : prev
+        );
+        return;
+      }
+
+      if (document.visibilityState === 'visible') {
+        if (pendingCall.hiddenAt == null) {
+          // Came back without ever actually leaving - the native call
+          // prompt was likely dismissed. Nothing to prompt or log.
+          setPendingCall(null);
+          return;
+        }
+
+        const elapsedMs = Date.now() - pendingCall.hiddenAt;
+        if (isQuickReturn(elapsedMs)) {
+          toast({
+            title: "That was quick",
+            description: "Looks like the call didn't go through - nothing logged.",
+          });
+        } else {
+          setCallDurationMinutes(Math.max(1, Math.round(elapsedMs / 60000)));
+          setNoteDialog({ open: true, contactId: pendingCall.contactId, platform: pendingCall.platform });
+        }
+        setPendingCall(null);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [pendingCall, toast]);
 
   const handleToggleFavorite = (contactId: string) => {
     const contact = contacts.find(c => c.id === contactId);
@@ -124,6 +192,7 @@ export default function Dashboard() {
       addCallNote(noteDialog.contactId, {
         date: new Date(),
         content: note,
+        duration: callDurationMinutes ?? undefined,
       });
       toast({
         title: "Note saved! 📝",
@@ -131,6 +200,7 @@ export default function Dashboard() {
       });
     }
     setNote('');
+    setCallDurationMinutes(null);
     setNoteDialog(null);
   };
 
@@ -254,6 +324,7 @@ export default function Dashboard() {
               isLowConfidence={todayContactMeta?.isLowConfidence}
               followUpFlagged={todayContactMeta?.followUpFlagged}
               bestTime={todayContactMeta?.bestTime}
+              typicalCallLength={todayContactMeta?.typicalCallLength}
               suggestedFrequency={todayContactMeta?.suggestedFrequency}
               onUpdateFrequency={handleUpdateFrequency}
             />
@@ -294,7 +365,7 @@ export default function Dashboard() {
                     <Card
                       key={contact.id}
                       className="inline-block w-32 p-4 shadow-soft hover:shadow-warm transition-smooth cursor-pointer flex-shrink-0"
-                      onClick={() => handleCallMade(contact.id, 'phone')}
+                      onClick={() => handleLogCallManually(contact.id, 'phone')}
                     >
                       <div className="text-center">
                         <p className="text-xs text-muted-foreground mb-2">{dayNames[index % 7]}</p>
@@ -322,7 +393,7 @@ export default function Dashboard() {
       </div>
 
       {/* Post-Call Notes Dialog */}
-      <Dialog open={noteDialog?.open || false} onOpenChange={(open) => !open && setNoteDialog(null)}>
+      <Dialog open={noteDialog?.open || false} onOpenChange={(open) => { if (!open) { setNoteDialog(null); setCallDurationMinutes(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl">How did the call go?</DialogTitle>
@@ -331,6 +402,11 @@ export default function Dashboard() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
+            {callDurationMinutes != null && (
+              <p className="text-xs text-muted-foreground -mt-2">
+                Looks like that call ran about {callDurationMinutes} min.
+              </p>
+            )}
             <Textarea
               placeholder="e.g., Caught up on work projects, planning to meet for coffee next week..."
               value={note}
@@ -345,7 +421,7 @@ export default function Dashboard() {
             <div className="flex gap-3">
               <Button 
                 variant="outline" 
-                onClick={() => setNoteDialog(null)} 
+                onClick={() => { setNoteDialog(null); setCallDurationMinutes(null); }} 
                 className="flex-1 rounded-full"
               >
                 Skip

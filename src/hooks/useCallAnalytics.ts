@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Contact } from '@/types/contact';
 import { buildFollowUpVocabulary, matchFollowUpSignal } from '@/lib/noteSignals';
 import { bestTimeToCall } from '@/lib/callTiming';
+import { typicalCallLength } from '@/lib/callLength';
 import { suggestedFrequency } from '@/lib/frequencyFit';
 
 interface ContactAnalytics {
@@ -24,6 +25,9 @@ interface ContactAnalytics {
   // Day/time window this contact's calls actually tend to land in
   // (see lib/callTiming) - null until there's enough history to say.
   bestTime: string | null;
+  // Average length of past calls, learned from real measured durations
+  // (see lib/callLength) - null until there's enough duration data to say.
+  typicalCallLength: string | null;
   // Set only when the real rhythm (averageInterval) has clearly
   // drifted from contact.callFrequency and there's enough history to
   // trust averageInterval in the first place (see lib/frequencyFit).
@@ -144,6 +148,7 @@ export const useCallAnalytics = (contacts: Contact[]) => {
         isLowConfidence,
         followUpFlagged,
         bestTime: bestTimeToCall(contact),
+        typicalCallLength: typicalCallLength(contact),
         suggestedFrequency: isLowConfidence ? null : suggestedFrequency(contact, averageInterval),
       };
     });
