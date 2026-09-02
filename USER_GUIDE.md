@@ -129,11 +129,18 @@ for a busy stretch is done per-contact via **Reschedule** (snooze).
 ## 7. Notifications
 
 The bell icon shows reminders such as "It's been a while since you heard
-from X" or an upcoming birthday. Notifications currently surface while
-the app is open in a browser tab (via a live connection to the server);
-they are not yet delivered as push notifications to a closed browser or
-phone lock screen — see `HANDOVER.md` under "Feature ideas" if that
-matters for your deployment.
+from X". These also arrive as push notifications on your phone or a closed
+browser, provided you allowed notifications when prompted (Settings >
+Enable Notifications) and the server has VAPID keys configured.
+
+How often a contact comes up follows the call frequency you set for them:
+someone marked "weekly" will surface at most once a week, "monthly" at most
+once a month — even if they're long overdue. Snoozing a contact via
+Reschedule stops their reminders until the snooze lapses, and calling
+someone resets the clock.
+
+Birthdays and anniversaries appear on the Dashboard but do not yet trigger
+their own notification.
 
 ---
 
@@ -156,8 +163,13 @@ and trust the requesting app.
 
 ## Known limitations (as of this build)
 
-- No real push notifications yet — the bell only works while a tab is
-  open.
+- Reminders are generated once a day on a fixed server-side schedule, so
+  the "reminder time" and "preferred call time" settings are not honoured
+  yet, and the timing follows the server's timezone rather than yours.
+- Birthdays and anniversaries are shown on the Dashboard but do not
+  generate notifications.
+- Tapping a push notification opens the app, but not that contact.
+- No quiet hours or Focus Mode yet.
 - No fuzzy duplicate-contact detection on import.
 - Calendar integration is one-way (email invite), not live two-way sync.
 

@@ -4,6 +4,85 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## 2026-09-02 — Notification correctness pass
+
+Four bugs in the reminder pipeline, all in `jobs/generateNotifications.js`
+except where noted. New migration `005_notification_dedupe.sql`.
+
+**1. Push arrived 24h before the in-app notification existed.** The job set
+`scheduled_for = now()+1day` but called `sendPushToUser` immediately, while
+`GET /notifications` filters `scheduled_for <= now()`. So the phone push
+landed at 06:00 and tapping it opened an empty bell; the reminder surfaced
+the *next* morning. `scheduled_for` is now `now()`. This removed the need
+for a separate due-dispatch pass, so `cron.js` is unchanged.
+
+**2. A duplicate per contact per day, forever.** The dedupe guard was
+`sent_at IS NULL AND scheduled_for >= now()`, but nothing in the codebase
+ever wrote `sent_at`, and `scheduled_for` was always exactly one day out —
+so by the next daily run the guard row had already fallen out of its own
+window. Whether it blocked at all came down to a millisecond comparison.
+The bell's `LIMIT 20` then filled with twenty copies of one person.
+
+Replaced with a cooldown on the most recent `created_at` per contact, set
+to that contact's own call frequency: a weekly contact surfaces at most
+weekly, a monthly one at most monthly. Half-frequency was tried first and
+still produced 8 nudges in 30 days — better than 30, still nagging.
+
+Separately, the existence check ran *once* before both the `planned_call`
+and `inactivity` branches, so a contact past both thresholds got two
+near-identical rows and two pushes the same morning. Since the default
+`inactivity_days` (14) equals biweekly's threshold, that was most contacts.
+`chooseReminder()` now returns at most one; inactivity wins when both apply,
+as it's the stronger signal.
+
+**3. `snoozed_until` was ignored here.** Already respected by the Dashboard
+and by `mcpTools.js`, but not by the job — so snoozing via
+`RescheduleDialog` silenced a contact in the UI while the daily push kept
+arriving. Now filtered in SQL.
+
+**4. The notifications WebSocket event was never sent.** `useNotifications`
+has always listened for `{ type: 'notifications' }`, but the only
+`broadcastToUser` calls were in `routes/contacts.js`. The bell never
+live-updated; it refreshed on remount. The job now broadcasts once per user
+when it creates anything, and `routes/notifications.js` broadcasts on
+read/read-all so the unread badge syncs across devices.
+
+Also: `sendPushToUser` returns `{ delivered, failed }` so `sent_at` reflects
+what actually happened rather than being assumed. A contact with
+`last_called = null` was generating "It's been 999 days since your last call
+with Mum" — the never-called case now has its own copy. And the `.ics` /
+Google Calendar block moved from `planned_call`-only to both types: now that
+the types are mutually exclusive, that gate excluded exactly the most
+overdue contacts.
+
+**Migration is destructive.** `005` adds the index the cooldown lookup needs
+plus a partial index for the unread count, then deletes the backlog the old
+logic produced — older *unread* duplicates per `(user_id, contact_id, type)`,
+keeping the newest. Read rows are untouched and every contact keeps at least
+one row. Drop the `DELETE` block if you want the history; the indexes are
+the only part the new job needs.
+
+**Verified** by stubbing the DB layer and replaying the job over simulated
+days against both the old and new versions (no Postgres to hand). One stale
+weekly contact over 30 daily runs: 30 rows / 30 pushes before, 5 / 5 after.
+Single run past both thresholds: two types before, one after. Ten runs while
+snoozed: 10 pushes before, 0 after. Also covered snooze expiry resuming,
+calling someone silencing them for the following week, and cooldown spacing
+matching frequency (7 / 14 / 30 days).
+
+**Not addressed — next up.** `reminder_time`, `preferred_call_time`,
+`reminder_tone` and `notification_frequency` are all persisted and patchable
+but read by nothing; cron is hard-coded `0 6 * * *` in server time. There is
+no timezone column anywhere, which is the blocker — Render runs UTC, so
+"06:00" is 07:00 in Lagos and 23:00 the previous night in LA. After that:
+occasion reminders (`occasions.ts` computes birthdays client-side and they
+never notify), a daily cap with batching, quiet hours / Focus Mode, and
+richer push payloads (`sw.js` already reads `data.url`; the server never
+sends one, so tapping a reminder focuses the app instead of opening the
+contact).
+
+---
+
 ## 2026-08-28 (d) — Added end-user guide
 
 Added `USER_GUIDE.md` at the repo root: a plain end-user walkthrough of the
@@ -443,9 +522,10 @@ Run `npm run migrate` to pick up `003_auth_hardening.sql`.
 
 ### Feature ideas (not started)
 
-- Real push notifications (Web Push) — the bell only surfaces reminders
-  while a tab is open; a check-in app arguably lives or dies on actually
-  reaching you at the right moment.
+- ~~Real push notifications (Web Push)~~ — DONE. Web Push is implemented
+  (`server/src/lib/push.js`, `server/src/routes/push.js`, `public/sw.js`,
+  `src/lib/push.ts`). This entry was stale. Remaining polish is tracked in
+  the 2026-09-02 entry above: payload deep-links, action buttons, icons.
 - Calling streaks ("called Mom every week for 6 weeks") — light
   gamification fitting the habit-maintenance angle of the app.
 - Duplicate contact detection on import (fuzzy name+phone match) —

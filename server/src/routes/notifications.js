@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
+import { broadcastToUser } from '../ws.js';
 
 export const notificationsRouter = Router();
 
@@ -21,6 +22,9 @@ notificationsRouter.post('/notifications/:id/read', async (req, res) => {
     [req.params.id, req.userId]
   );
   if (rowCount === 0) return res.status(404).json({ error: 'Notification not found' });
+  // Keeps the bell's unread badge in sync across a user's other open
+  // tabs/devices — the originating client already updated optimistically.
+  broadcastToUser(req.userId, { type: 'notifications' });
   res.json({ ok: true });
 });
 
@@ -29,5 +33,6 @@ notificationsRouter.post('/notifications/read-all', async (req, res) => {
     'UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL',
     [req.userId]
   );
+  broadcastToUser(req.userId, { type: 'notifications' });
   res.json({ ok: true });
 });
