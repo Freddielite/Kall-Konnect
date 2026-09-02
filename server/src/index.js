@@ -14,6 +14,7 @@ import { pushRouter } from './routes/push.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { attachWebSocketServer } from './ws.js';
 import { startCronJobs } from './jobs/cron.js';
+import { jobsRouter } from './routes/jobs.js';
 import { checkCookieConfig, SAME_SITE } from './lib/cookies.js';
 
 const app = express();
@@ -63,6 +64,9 @@ app.use(mcpRouter);
 // Push subscription management — the public-key route is public, the
 // subscribe/unsubscribe routes apply requireAuth themselves.
 app.use(pushRouter);
+
+// Machine-authenticated (x-cron-secret), so it sits outside requireAuth.
+app.use(jobsRouter);
 
 // App-session-protected: everything the frontend itself calls.
 app.use(requireAuth, contactsRouter);

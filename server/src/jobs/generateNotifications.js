@@ -4,7 +4,9 @@ import { sendCalendarReminderEmail } from '../lib/email.js';
 import { buildReminderIcs } from '../lib/ics.js';
 import { getValidAccessToken, upsertCalendarEvent } from '../lib/googleCalendar.js';
 import { broadcastToUser } from '../ws.js';
-import { chooseScenario, daysBetween, isRoutineDue, thresholdDaysFor } from './reminderRules.js';
+import {
+  chooseScenario, daysBetween, isCategoryEnabled, isRoutineDue, thresholdDaysFor,
+} from './reminderRules.js';
 import { buildReminder, greetingName, toneForContact } from './reminderCopy.js';
 import {
   buildFollowUpVocabulary,
@@ -63,6 +65,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
     const { rows: contacts } = await query(
       `SELECT c.id, c.name, c.call_frequency, c.last_called, c.relationship,
               c.template_tone, c.birthday, c.anniversary, c.is_favorite, c.priority,
+              c.created_at AS contact_created_at,
               (SELECT max(n.created_at)
                  FROM notifications n
                 WHERE n.user_id = c.user_id AND n.contact_id = c.id) AS last_notified_at,
@@ -98,13 +101,18 @@ export async function generateNotifications({ dryRun = false } = {}) {
       specialByContact.get(sd.contact_id).push(sd);
     }
 
-    // Honour notification_frequency. Occasions and streak milestones are
-    // events and fire regardless; only the routine "who to call" reminder
-    // and the quiet-day nudge respect the cadence.
+    // Honour notification_frequency, and make the whole job idempotent for
+    // the day. 'occasion' is in this list even though occasions themselves
+    // ignore the gate: an occasion firing means the user has already been
+    // notified today, so the routine pick must not also fire. Without it, a
+    // second run on the same day — an external trigger alongside node-cron,
+    // or a redeploy — would send a second push, because the first run's
+    // occasion had skipped the routine slot and left it looking unused.
+    // Streak milestones have their own 1-day guard.
     const { rows: lastRoutine } = await query(
       `SELECT max(created_at) AS at FROM notifications
         WHERE user_id = $1
-          AND type IN ('planned_call', 'inactivity', 'follow_up', 'first_call', 'nudge')`,
+          AND type IN ('planned_call', 'inactivity', 'follow_up', 'first_call', 'nudge', 'occasion')`,
       [pref.user_id]
     );
     const routineDue = isRoutineDue({
@@ -125,6 +133,11 @@ export async function generateNotifications({ dryRun = false } = {}) {
       const neverCalled = lastCalled === null;
       const daysSinceLastCall = lastCalled ? daysBetween(lastCalled, now) : Infinity;
       const thresholdDays = thresholdDaysFor(contact.call_frequency);
+      // For a never-called contact there is no last call to count from, so
+      // the copy counts from when they were added instead.
+      const daysSinceAdded = contact.contact_created_at
+        ? daysBetween(new Date(contact.contact_created_at), now)
+        : null;
 
       const contactNotes = notesByContact.get(contact.id) ?? [];
       const lastNote = contactNotes[contactNotes.length - 1];
@@ -135,6 +148,9 @@ export async function generateNotifications({ dryRun = false } = {}) {
       // Occasions are time-critical and unrepeatable, so they bypass both
       // the rotation and the one-a-day cap. Their own guard stops repeats:
       // OCCASION_LEAD_DAYS is [3, 0], so two touches per occasion.
+      if (occasion && !isCategoryEnabled(pref.notification_categories, 'occasion')) {
+        continue;
+      }
       if (occasion) {
         const repeated =
           contact.last_occasion_at &&
@@ -143,7 +159,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
           toCreate.push({
             ...buildReminder('occasion', {
               contact, userName, tone: toneForContact(contact), days: daysSinceLastCall,
-              streak, dayKey: today, occasionType: occasion.occasionType,
+              daysSinceAdded, streak, dayKey: today, occasionType: occasion.occasionType,
               label: occasion.label, daysUntil: occasion.daysUntil,
             }),
             contactId: contact.id, contactName: contact.name, scenario: 'occasion',
@@ -161,6 +177,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
         thresholdDays,
       });
       if (!scenario) continue;
+      if (!isCategoryEnabled(pref.notification_categories, scenario)) continue;
 
       const { score } = urgencyScore({
         contact,
@@ -170,7 +187,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
       });
 
       routineCandidates.push({
-        contact, scenario, score, daysSinceLastCall,
+        contact, scenario, score, daysSinceLastCall, daysSinceAdded,
         lastNotifiedAt: contact.last_notified_at,
       });
     }
@@ -188,6 +205,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
           userName,
           tone: toneForContact(chosen.contact),
           days: chosen.daysSinceLastCall,
+          daysSinceAdded: chosen.daysSinceAdded,
           streak,
           dayKey: today,
           alsoDue: routineCandidates.length - 1,
@@ -212,7 +230,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
     // their own notification — a "your streak is at risk" nudge can't work on
     // a 06:00 job, since at 6am nobody has had a chance to call anyone yet.
     // A live streak instead colours the copy of whatever else fired.
-    if (isStreakMilestone(streak)) {
+    if (isStreakMilestone(streak) && isCategoryEnabled(pref.notification_categories, 'streak')) {
       const { rows: recentStreak } = await query(
         `SELECT 1 FROM notifications
           WHERE user_id = $1 AND type = 'streak' AND created_at > now() - interval '1 day' LIMIT 1`,
@@ -248,7 +266,22 @@ export async function generateNotifications({ dryRun = false } = {}) {
       // roll back the notification row; the in-app bell still shows it.
       // Awaited only so sent_at reflects what actually happened.
       try {
-        const { delivered } = await sendPushToUser(pref.user_id, { title: n.title, body: n.message });
+        const { delivered } = await sendPushToUser(pref.user_id, {
+          title: n.title,
+          body: n.message,
+          // The payload used to be title+body only: no icon (the browser fell
+          // back to a generic bell), no tag (so reminders stacked up), and no
+          // url, which meant sw.js's notificationclick handler just focused
+          // whatever tab it found. Tapping a reminder now lands on the
+          // Dashboard, which is where today's suggested call actually is.
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          // One live notification per contact — a new reminder about the same
+          // person replaces the old one instead of piling up on the lock screen.
+          tag: n.contactId ? `kk-contact-${n.contactId}` : `kk-${n.type}`,
+          url: '/',
+          data: { notificationId: null, type: n.type, contactId: n.contactId },
+        });
         if (delivered > 0) {
           await query('UPDATE notifications SET sent_at = now() WHERE id = $1', [notificationId]);
         }

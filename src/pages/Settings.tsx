@@ -14,9 +14,31 @@ import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
 import { enablePushNotifications, disablePushNotifications } from '@/lib/push';
+import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
 import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
+
+/** Mirrors NOTIFICATION_CATEGORIES in server/src/jobs/reminderRules.js and
+ * the notifications.type CHECK constraint. Keep the three in sync. */
+const NOTIFICATION_CATEGORIES: {
+  key: NotificationCategory;
+  label: string;
+  description: string;
+}[] = [
+  { key: 'planned_call', label: 'Routine check-ins',
+    description: "When someone's due based on how often you want to call them" },
+  { key: 'inactivity', label: 'Long silences',
+    description: "When it's been much longer than usual since you spoke" },
+  { key: 'occasion', label: 'Birthdays & anniversaries',
+    description: 'A few days ahead, and on the day itself' },
+  { key: 'follow_up', label: 'Unfinished conversations',
+    description: 'When your notes suggest a call was left hanging' },
+  { key: 'first_call', label: 'New contacts',
+    description: "People you've added but never called" },
+  { key: 'streak', label: 'Streak milestones',
+    description: 'When you hit a run of days keeping in touch' },
+];
 
 export default function Settings() {
   const { toast } = useToast();
@@ -213,6 +235,39 @@ export default function Settings() {
                   How often you get a reminder. Each one names a single person
                   to call. Birthdays and anniversaries always come through.
                 </p>
+              </div>
+
+              <div className="pt-1">
+                <p className="font-medium mb-1">What to notify me about</p>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Turn off any kind you don't want. Reminders still respect the
+                  frequency above.
+                </p>
+                <div className="space-y-3">
+                  {NOTIFICATION_CATEGORIES.map(({ key, label, description }) => (
+                    <div key={key} className="flex items-center justify-between gap-3">
+                      <Label htmlFor={`cat-${key}`} className="flex-1">
+                        <div>
+                          <p className="text-sm font-medium">{label}</p>
+                          <p className="text-xs text-muted-foreground">{description}</p>
+                        </div>
+                      </Label>
+                      <Switch
+                        id={`cat-${key}`}
+                        checked={preferences.notification_categories?.[key] !== false}
+                        onCheckedChange={(checked) =>
+                          updatePreferences({
+                            notification_categories: {
+                              ...preferences.notification_categories,
+                              [key]: checked,
+                            },
+                          })
+                        }
+                        disabled={loading || !preferences.notifications_enabled}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="flex items-center justify-between">

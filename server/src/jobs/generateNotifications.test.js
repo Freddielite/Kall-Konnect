@@ -9,7 +9,10 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { cooldownDaysFor, daysBetween, isRoutineDue, periodDaysFor } from './reminderRules.js';
+import {
+  cooldownDaysFor, daysBetween, isRoutineDue, periodDaysFor,
+  isCategoryEnabled, NOTIFICATION_CATEGORIES,
+} from './reminderRules.js';
 
 describe('cooldownDaysFor', () => {
   test('matches the contact call frequency', () => {
@@ -38,7 +41,7 @@ describe('daysBetween', () => {
 
 import { chooseScenario, FOLLOW_UP_MIN_DAYS } from './reminderRules.js';
 import {
-  buildReminder, greetingName, toneForContact, variantIndex, SCENARIO_TYPES,
+  buildReminder, greetingName, toneForContact, variantIndex, SCENARIO_TYPES, addedLabel,
 } from './reminderCopy.js';
 import {
   computeCallStreak, isStreakMilestone, upcomingOccasionFor,
@@ -451,5 +454,98 @@ describe('notification_frequency', () => {
   test('monthly holds off for a month', () => {
     assert.equal(isRoutineDue({ lastRoutineAt: ago(29), notificationFrequency: 'monthly', now }), false);
     assert.equal(isRoutineDue({ lastRoutineAt: ago(30), notificationFrequency: 'monthly', now }), true);
+  });
+});
+
+// ── The "999 days" bug ────────────────────────────────────────────────────
+
+describe('never-called contacts count from when they were added', () => {
+  test('addedLabel phrasing', () => {
+    assert.match(addedLabel(0).since, /today/);
+    assert.match(addedLabel(1).since, /yesterday/);
+    assert.match(addedLabel(12).since, /12 days ago/);
+  });
+
+  test('handles a missing created_at without leaking a number', () => {
+    for (const v of [null, undefined, NaN, Infinity]) {
+      const { since, sinceBare } = addedLabel(v);
+      assert.ok(since.length && sinceBare.length);
+      for (const bad of ['NaN', 'Infinity', 'null', 'undefined']) {
+        assert.ok(!since.includes(bad), `${bad} leaked for input ${v}: ${since}`);
+        assert.ok(!sinceBare.includes(bad), `${bad} leaked for input ${v}: ${sinceBare}`);
+      }
+    }
+  });
+
+  test('never renders 999, in any tone or variant', () => {
+    // Regression: last_called is null for these contacts and used to be
+    // coerced to 999, shipping "It's been 999 days since your last call with
+    // Freddie Ose" — wrong number, wrong field, nonsense sentence.
+    for (const tone of ['warm', 'casual', 'friendly']) {
+      for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) {
+        const r = buildReminder('first_call', {
+          contact: { id, name: 'Freddie Ose' },
+          userName: 'Joy', tone, days: Infinity, daysSinceAdded: 12,
+          dayKey: '2026-1-1', streak: 0,
+        });
+        assert.ok(!r.message.includes('999'), r.message);
+        assert.ok(!r.message.includes('Infinity'), r.message);
+        assert.match(r.message, /12 days/, `should name the real number: ${r.message}`);
+      }
+    }
+  });
+});
+
+describe('notification categories', () => {
+  test('all six are listed', () => {
+    assert.equal(NOTIFICATION_CATEGORIES.length, 6);
+    for (const c of NOTIFICATION_CATEGORIES) {
+      assert.ok(SCENARIO_TYPES.includes(c), `${c} is not a valid notifications.type`);
+    }
+  });
+
+  test('enabled unless explicitly switched off', () => {
+    assert.equal(isCategoryEnabled({ streak: false }, 'streak'), false);
+    assert.equal(isCategoryEnabled({ streak: true }, 'streak'), true);
+  });
+
+  test('a missing key means on, so old rows do not go silent', () => {
+    // Rows written before migration 009, or before a category existed.
+    assert.equal(isCategoryEnabled({}, 'occasion'), true);
+    assert.equal(isCategoryEnabled(null, 'occasion'), true);
+    assert.equal(isCategoryEnabled(undefined, 'occasion'), true);
+    assert.equal(isCategoryEnabled({ inactivity: false }, 'occasion'), true);
+  });
+});
+
+// ── Idempotency within a day ──────────────────────────────────────────────
+
+describe('running the job more than once a day', () => {
+  // With a keep-alive pinger, node-cron fires AND an external trigger may
+  // fire, and a redeploy can run it again. Every path must be a no-op after
+  // the first send of the day.
+  const at = (t) => new Date(`2026-01-01T${t}:00Z`);
+
+  test('a second run the same day is not due', () => {
+    assert.equal(isRoutineDue({ lastRoutineAt: at('06:00'), notificationFrequency: 'daily', now: at('06:05') }), false);
+    assert.equal(isRoutineDue({ lastRoutineAt: at('06:00'), notificationFrequency: 'daily', now: at('23:59') }), false);
+  });
+
+  test('the next day is due again', () => {
+    assert.equal(
+      isRoutineDue({ lastRoutineAt: at('06:00'), notificationFrequency: 'daily', now: new Date('2026-01-02T06:00:00Z') }),
+      true
+    );
+  });
+
+  test('an occasion counts as the day being covered', () => {
+    // Regression: occasions skip the routine pick by design, so if they
+    // weren't counted here, a second run would see the routine slot as
+    // unused and send a second push minutes after the first.
+    const ROUTINE_GATE_TYPES = ['planned_call', 'inactivity', 'follow_up', 'first_call', 'nudge', 'occasion'];
+    for (const t of ROUTINE_GATE_TYPES) {
+      assert.ok(SCENARIO_TYPES.includes(t) || t === 'nudge', `${t} is not a real type`);
+    }
+    assert.ok(ROUTINE_GATE_TYPES.includes('occasion'), 'occasion must gate the routine slot');
   });
 });

@@ -28,9 +28,16 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Kall Konnect';
   const options = {
     body: data.body || '',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
-    data: { url: data.url || '/' },
+    // favicon.ico is 16/32px and renders as a blurry smudge in the Android
+    // notification shade. icon-192 is the maskable app icon.
+    icon: data.icon || '/icon-192.png',
+    badge: data.badge || '/icon-192.png',
+    // Collapses repeat reminders about the same person rather than stacking
+    // them. Without a tag, a week away from the phone means seven separate
+    // notifications to swipe.
+    tag: data.tag,
+    renotify: Boolean(data.tag),
+    data: { url: data.url || '/', ...(data.data || {}) },
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
@@ -44,6 +51,9 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
+          // Focus alone would leave the user on whatever page they last had
+          // open; navigate so a tapped reminder actually lands somewhere useful.
+          if ('navigate' in client) client.navigate(targetUrl).catch(() => {});
           return client.focus();
         }
       }

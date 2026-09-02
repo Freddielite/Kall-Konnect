@@ -143,7 +143,9 @@ You get one reminder a day by default, naming one person. Settings >
 Notification Frequency changes that to weekly or monthly if daily is too
 much; birthdays and anniversaries always come through regardless. "Nudge me
 on quiet days" controls whether you still hear from the app on days when
-nobody is actually due.
+nobody is actually due, and the "What to notify me about" switches let you
+turn off any individual kind of reminder — routine check-ins, long silences,
+birthdays, unfinished conversations, new contacts, or streak milestones.
 
 Each reminder names one person. It picks whoever is most
 worth calling, and rotates so you're not hearing the same name every

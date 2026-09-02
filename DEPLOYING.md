@@ -68,6 +68,69 @@ move to a custom domain. Treat it as temporary.
 
 ---
 
+## 1b. The daily reminder will not send on Render's free tier
+
+> **Already keeping the instance awake with a pinger?** Then `node-cron` does
+> fire and this section is optional. Two things still apply: set
+> `CRON_TIMEZONE` (see §6) or reminders go out at 07:00 WAT rather than 06:00,
+> and consider keeping the external trigger anyway — a pinger is a silent
+> single point of failure, and if it stops, notifications stop with nothing
+> logging an error. The job is idempotent for the day, so running it from
+> both places never double-sends.
+
+
+This is the single most common reason the app "doesn't send notifications"
+while Web Push is configured perfectly.
+
+`server/src/jobs/cron.js` schedules the reminder with `node-cron`, which runs
+**inside the server process**. Free Render instances spin down after ~15
+minutes idle. At 06:00 there is normally nothing running, so the job never
+executes, no notifications are created, and no pushes are sent. Nothing logs
+an error, because nothing ran.
+
+**Fix: trigger it from outside.**
+
+1. Generate a secret: `openssl rand -hex 32`
+2. Render > your service > Environment: add `CRON_SECRET` with that value.
+3. GitHub repo > Settings > Secrets and variables > Actions, add `CRON_SECRET`
+   (same value) and `API_URL` (`https://your-api.onrender.com`, no trailing
+   slash).
+
+`.github/workflows/daily-reminders.yml` is already in this repo and does the
+rest. It also has `workflow_dispatch`, so you can run it by hand from the
+Actions tab to test.
+
+Prefer something else? Any scheduler works:
+
+```
+curl -X POST https://your-api.onrender.com/jobs/generate-notifications \
+  -H "x-cron-secret: $CRON_SECRET"
+```
+
+cron-job.org is free and fine. Render's own Cron Jobs are a paid feature. Set
+the caller's timeout to at least 120s — a sleeping instance takes 30-60s to
+wake before the job even starts.
+
+Verify it works:
+
+```
+# Should be 401
+curl -i -X POST https://your-api.onrender.com/jobs/generate-notifications
+# Should be 200 with {"ok":true,"created":N}
+curl -X POST https://your-api.onrender.com/jobs/generate-notifications \
+  -H "x-cron-secret: $CRON_SECRET"
+```
+
+A 503 means `CRON_SECRET` isn't set on the server. The server also prints a
+warning at startup when `NODE_ENV=production` and no `CRON_SECRET` is set.
+
+**Note on timezone.** GitHub's `cron:` is always UTC, so use `0 5 * * *` for
+06:00 WAT. The in-process job now takes `CRON_TIMEZONE` instead — set it to
+`Africa/Lagos` and leave `CRON_SCHEDULE` at `0 6 * * *`. Per-user reminder
+times still aren't supported; this is one global time for everyone.
+
+---
+
 ## 2. Render's free tier sleeps — raise the request timeout
 
 Free instances spin down after ~15 minutes idle and take **30–60s** to wake.

@@ -1,0 +1,47 @@
+# Triggers the daily reminder job on the backend.
+#
+# Why this exists: the server schedules the job in-process with node-cron,
+# which only fires if the process is awake at that moment. Render's free tier
+# spins an instance down after ~15 minutes idle, so at 06:00 there is usually
+# nothing running and no reminder is ever sent. This workflow wakes the
+# instance and runs the job.
+#
+# Setup (once):
+#   1. Generate a secret:  openssl rand -hex 32
+#   2. Render dashboard > your service > Environment: add CRON_SECRET
+#   3. GitHub repo > Settings > Secrets and variables > Actions, add:
+#        CRON_SECRET  - the same value
+#        API_URL      - e.g. https://your-api.onrender.com  (no trailing slash)
+#
+# GitHub's scheduler is best-effort and can lag by several minutes under load.
+# That's fine for a daily reminder; it is not a precise alarm clock.
+
+name: Daily reminders
+
+on:
+  schedule:
+    # 06:00 UTC. Cron here is always UTC — adjust for your users' timezone.
+    # Nigeria (WAT, UTC+1) 06:00 would be '0 5 * * *'.
+    - cron: '0 6 * * *'
+  workflow_dispatch: # lets you run it by hand from the Actions tab
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call generate-notifications
+        run: |
+          # --max-time 180: a sleeping free-tier instance takes 30-60s to wake
+          # before it even starts the job, so a short timeout would abort a
+          # perfectly healthy run.
+          code=$(curl -s -o /tmp/body.txt -w '%{http_code}' \
+            --max-time 180 \
+            -X POST "${{ secrets.API_URL }}/jobs/generate-notifications" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"
+          cat /tmp/body.txt
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::error::Reminder job failed with HTTP $code"
+            exit 1
+          fi

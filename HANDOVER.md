@@ -4,6 +4,99 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## 2026-09-02 (f) — Keep-alive setup: idempotency, timezone, missed runs
+
+Backend is kept awake by an external pinger, so `node-cron` does fire and the
+Render-sleep problem in (e) doesn't apply here. Three consequences.
+
+**1. Double-send bug, found by testing two triggers on one morning.** With
+both node-cron and an external trigger — or just a redeploy — the job ran
+twice and sent twice. Cause: occasions skip the routine pick by design, but
+`type = 'occasion'` wasn't in the routine-recency gate, so the second run saw
+the routine slot as unused and fired a second push five minutes after the
+first. 'occasion' is now in that list: an occasion firing means the user has
+already been notified today. Verified — runs at 06:00 / 06:05 / 06:05:30 /
+14:22 now produce exactly one notification.
+
+This makes the job safe to run from any number of triggers, which is the
+point: keep-alive plus node-cron, external cron, manual curl, and a redeploy
+can all coexist without the user noticing.
+
+**2. `CRON_TIMEZONE`.** Server time is UTC on Render, so `0 6 * * *` reached a
+Nigerian user at 07:00 WAT. `CRON_TIMEZONE=Africa/Lagos` makes it 06:00 local
+without touching the expression. `CRON_SCHEDULE` is configurable too.
+Verified node-cron accepts both the `{ timezone }` option and `undefined`.
+Still one global time for everyone — per-user `reminder_time` needs the
+timezone column.
+
+**3. Catch-up on boot** (`CRON_CATCH_UP_ON_BOOT`, default on). Once the
+instance is kept awake, the main residual risk is a restart or redeploy
+straddling the scheduled minute: node-cron has no concept of a missed run, so
+that day gets nothing. The job now re-runs ~10s after startup. Safe precisely
+because of (1) — if today's reminder already went out it does nothing.
+
+The `POST /jobs/generate-notifications` endpoint and GitHub Actions workflow
+from (e) stay. They're now belt-and-braces rather than load-bearing, and
+worth keeping: a pinger is a silent single point of failure, and if it stops,
+notifications stop with nothing logging an error anywhere.
+
+Tests 59, replay 14/14.
+
+---
+
+## 2026-09-02 (e) — Push actually reaching people; 999-day fix; category switches
+
+Prompted by a screenshot of the live app showing two notifications for the
+same contact, both reading "It's been 999 days since your last call with
+Freddie Ose". Both were already fixed in (a)/(b) but not deployed.
+
+**1. The daily job never runs on Render's free tier — the real reason push
+looks broken.** `node-cron` schedules in-process; free instances spin down
+after ~15 min idle, so at 06:00 there is nothing running. No job, no
+notifications, no pushes, and nothing logs an error because nothing ran.
+
+New `POST /jobs/generate-notifications`, authenticated with a `CRON_SECRET`
+shared secret (machine caller, no cookies). 503 when the secret isn't
+configured so a misconfigured deploy is distinguishable from a wrong secret.
+`.github/workflows/daily-reminders.yml` calls it daily with a 180s curl
+timeout — a sleeping instance needs 30-60s to wake before the job starts.
+`workflow_dispatch` included for manual runs. The server warns at startup if
+NODE_ENV=production and CRON_SECRET is unset. DEPLOYING.md §1b covers it.
+
+**2. "999 days" replaced with days since the contact was added.** `last_called`
+is null for a never-called contact and was being coerced to 999. (b) had
+dropped the number entirely; counting from `contacts.created_at` is better —
+"you added them 11 days ago". `addedLabel()` handles today/yesterday/N days
+and degrades to "a while back" rather than leaking NaN when created_at is
+missing.
+
+**3. Six per-category switches** (migration 009, `notification_categories`
+JSONB). Routine check-ins, long silences, birthdays, unfinished
+conversations, new contacts, streak milestones. JSONB rather than six columns
+so a seventh category doesn't need another migration. **A missing key means
+enabled** — rows written before 009 must not silently go quiet.
+
+**4. The push payload was nearly useless.** title+body only: no icon (Android
+fell back to a generic bell), no tag (a week away meant seven separate
+notifications to swipe), and no url, so sw.js's click handler just focused
+whatever tab it found. Now sends `icon`/`badge` (icon-192, not the 16px
+favicon), a per-contact `tag` so repeat reminders collapse, and `url`. sw.js
+navigates on click rather than only focusing. Taps land on the Dashboard —
+there is no `/contacts/:id` route to deep-link to, which is worth adding.
+
+Frontend typechecks clean; the two pre-existing errors in
+`ImportContactsDialog.tsx` and `ui/button.tsx` were confirmed present in the
+original upload and are untouched.
+
+Tests 56, replay 14/14. Both counts include the regression that started this:
+"never renders 999, in any tone or variant".
+
+**Still open.** `preferred_call_time` and `reminder_time` remain unwired —
+both need the timezone column. Streak-at-risk needs an evening run. A
+`/contacts/:id` route would make push taps land on the right person.
+
+---
+
 ## 2026-09-02 (d) — Made the Settings switches real
 
 Two controls on the Settings screen were persisted, rendered, and read by

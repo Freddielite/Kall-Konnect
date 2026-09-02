@@ -9,7 +9,17 @@ interface Preferences {
   preferred_call_time: 'morning' | 'afternoon' | 'evening' | 'anytime';
   auto_add_calendar_reminders: boolean;
   quiet_day_nudges: boolean;
+  notification_categories: NotificationCategories;
 }
+
+/** Keys match notifications.type on the server (SCENARIO_TYPES in
+ * reminderCopy.js) and the CHECK constraint in migration 006/007. A missing
+ * key means enabled, so a preferences row written before a category existed
+ * doesn't silently go quiet. */
+export type NotificationCategory =
+  | 'planned_call' | 'inactivity' | 'occasion' | 'follow_up' | 'first_call' | 'streak';
+
+export type NotificationCategories = Partial<Record<NotificationCategory, boolean>>;
 
 const DEFAULTS: Preferences = {
   notification_frequency: 'daily',
@@ -19,6 +29,10 @@ const DEFAULTS: Preferences = {
   preferred_call_time: 'evening',
   auto_add_calendar_reminders: false,
   quiet_day_nudges: true,
+  notification_categories: {
+    planned_call: true, inactivity: true, occasion: true,
+    follow_up: true, first_call: true, streak: true,
+  },
 };
 
 export const usePreferences = () => {

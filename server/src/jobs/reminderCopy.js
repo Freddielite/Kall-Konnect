@@ -79,21 +79,25 @@ export function variantIndex(seed, count) {
 // empty — never concatenate a name yourself.
 
 const BODIES = {
+  // `since` is phrased from contacts.created_at — "since you added them" —
+  // never from last_called, which is null by definition here. The old code
+  // coerced that null to 999 and shipped "It's been 999 days since your last
+  // call with Freddie Ose", which is both wrong and nonsense.
   first_call: {
     warm: [
-      (c) => `${c.g}you haven't spoken to ${c.name} through here yet. A first call is always the hardest one — and the best one.`,
-      (c) => `${c.g}${c.name} is new here. No history to catch up on, just a good excuse to ring.`,
-      (c) => `${c.g}${c.name} hasn't heard from you yet. Might be a lovely surprise.`,
+      (c) => `${c.g}you haven't spoken to ${c.name} through here yet — ${c.since}. A first call is always the hardest one, and the best one.`,
+      (c) => `${c.g}${c.name} has been in your list ${c.sinceBare} with no call yet. No history to catch up on, just a good excuse to ring.`,
+      (c) => `${c.g}${c.name} hasn't heard from you yet — ${c.since}. Might be a lovely surprise.`,
     ],
     casual: [
-      (c) => `${c.g}you've not called ${c.name} yet. Break the ice?`,
-      (c) => `${c.g}${c.name} is sitting in your list unbothered. Give them a ring.`,
-      (c) => `${c.g}first call with ${c.name} is still pending. Now's as good a time as any.`,
+      (c) => `${c.g}you've not called ${c.name} yet — ${c.since}. Break the ice?`,
+      (c) => `${c.g}${c.name} has been sitting in your list ${c.sinceBare}, unbothered. Give them a ring.`,
+      (c) => `${c.g}first call with ${c.name} is still pending — ${c.since}. Now's as good a time as any.`,
     ],
     friendly: [
-      (c) => `${c.g}you haven't called ${c.name} yet. A quick hello would do it.`,
-      (c) => `${c.g}${c.name} is new to your list — worth an introduction call.`,
-      (c) => `${c.g}no calls logged with ${c.name} so far. Want to start?`,
+      (c) => `${c.g}you haven't called ${c.name} yet — ${c.since}. A quick hello would do it.`,
+      (c) => `${c.g}${c.name} has been on your list ${c.sinceBare} without a call. Worth an introduction.`,
+      (c) => `${c.g}no calls logged with ${c.name} ${c.sinceBare}. Want to start?`,
     ],
   },
 
@@ -219,6 +223,16 @@ export const SCENARIO_TYPES = [
   'planned_call', 'inactivity', 'occasion', 'follow_up', 'first_call', 'streak', 'nudge',
 ];
 
+/** "you added them 12 days ago" / "…today" / "…yesterday". Used only for
+ * never-called contacts, where days-since-last-call doesn't exist. */
+export function addedLabel(daysSinceAdded) {
+  const d = Number.isFinite(daysSinceAdded) ? Math.max(0, Math.floor(daysSinceAdded)) : null;
+  if (d === null) return { since: 'you added them a while back', sinceBare: 'for a while' };
+  if (d === 0) return { since: 'you added them today', sinceBare: 'since today' };
+  if (d === 1) return { since: 'you added them yesterday', sinceBare: 'since yesterday' };
+  return { since: `you added them ${d} days ago`, sinceBare: `for ${d} days` };
+}
+
 export function whenLabel(daysUntil) {
   if (daysUntil === 0) return 'today';
   if (daysUntil === 1) return 'tomorrow';
@@ -237,6 +251,7 @@ export function buildReminder(scenario, ctx) {
   const tone = ctx.tone ?? toneForContact(ctx.contact);
   const g = ctx.userName ? `Hey ${ctx.userName}, ` : '';
   const when = whenLabel(ctx.daysUntil ?? 0);
+  const { since, sinceBare } = addedLabel(ctx.daysSinceAdded);
 
   const view = {
     g,
@@ -247,6 +262,8 @@ export function buildReminder(scenario, ctx) {
     when,
     daysUntil: ctx.daysUntil,
     occasionType: ctx.occasionType,
+    since,
+    sinceBare,
   };
 
   const seed = `${ctx.contact?.id ?? 'user'}|${scenario}|${ctx.dayKey ?? ''}`;

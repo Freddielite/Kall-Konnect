@@ -78,3 +78,20 @@ export function isRoutineDue({ lastRoutineAt, notificationFrequency, now = new D
   if (!lastRoutineAt) return true;
   return daysBetween(new Date(lastRoutineAt), now) >= periodDaysFor(notificationFrequency);
 }
+
+/** Categories a user can switch off individually in Settings. Keys match
+ * notifications.type. The quiet-day `nudge` has its own separate toggle
+ * (quiet_day_nudges), so it isn't listed here. */
+export const NOTIFICATION_CATEGORIES = [
+  'planned_call', 'inactivity', 'occasion', 'follow_up', 'first_call', 'streak',
+];
+
+/**
+ * A category is enabled unless explicitly switched off. Missing keys mean
+ * "on", so a preferences row written before a category existed — or before
+ * migration 009 ran — doesn't silently go quiet.
+ */
+export function isCategoryEnabled(categories, type) {
+  if (!categories || typeof categories !== 'object') return true;
+  return categories[type] !== false;
+}

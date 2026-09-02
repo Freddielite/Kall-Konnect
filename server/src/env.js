@@ -68,6 +68,22 @@ export const env = {
   // logged-in browser there to ask the user to approve/deny.
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
 
+  // Shared secret for POST /jobs/generate-notifications, so an external
+  // scheduler can run the daily reminder job. Required on any host that
+  // sleeps when idle (Render's free tier does) — an in-process cron cannot
+  // fire while the process is spun down. Any long random string.
+  cronSecret: process.env.CRON_SECRET ?? '',
+
+  // When the daily reminder runs, and in which timezone. Server time is UTC
+  // on Render, so the default reaches a Nigerian user (WAT, UTC+1) at 07:00.
+  // Set CRON_TIMEZONE=Africa/Lagos for 06:00 local. This is a single global
+  // time for all users — per-user reminder_time still isn't supported.
+  cronSchedule: process.env.CRON_SCHEDULE ?? '0 6 * * *',
+  cronTimezone: process.env.CRON_TIMEZONE ?? '',
+  // Re-run shortly after boot in case a restart straddled the scheduled
+  // minute. A no-op if today's reminder already went out.
+  cronCatchUpOnBoot: process.env.CRON_CATCH_UP_ON_BOOT !== 'false',
+
   // Web Push (real push notifications, delivered even when no tab is
   // open). Generate a keypair with: npx web-push generate-vapid-keys
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? '',
