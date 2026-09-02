@@ -81,12 +81,23 @@ if (mig.length === 0) {
     '005_notification_dedupe.sql',
     '006_notification_scenarios.sql',
     '007_daily_nudge_type.sql',
+    '008_quiet_day_nudges.sql',
+    '009_notification_categories.sql',
+    '010_purge_999_notifications.sql',
   ]) {
     const { rows: applied } = await query('SELECT 1 FROM schema_migrations WHERE filename = $1', [f]);
     if (applied.length) ok(`Migration ${f} applied.`);
     else bad(`Migration ${f} NOT applied.`, 'Run: npm run migrate');
   }
 }
+
+// Stale rows from before the fixes still show in the bell, which reads the
+// last 20 notifications regardless of when they were written.
+const { rows: [legacy] } = await query(
+  "SELECT count(*)::int AS n FROM notifications WHERE message LIKE '%999 days%'"
+);
+if (legacy.n === 0) ok('No legacy "999 days" notifications left in the bell.');
+else bad(`${legacy.n} legacy "999 days" notification(s) still stored.`, 'Run: npm run migrate (applies 010)');
 
 if (env.vapidPublicKey && env.vapidPrivateKey) {
   ok('VAPID keys configured — push will be attempted.');

@@ -4,6 +4,147 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## NEXT UP — notifications
+
+Consolidated from the 2026-09-02 (a)-(f) entries below, so the open items
+aren't scattered across six changelogs. Ordered by what's actually blocking
+what. Nothing here is started.
+
+### 0. Deploy checklist (not code — but none of the work below reaches a user until this is done)
+
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` on Render (`npx web-push
+  generate-vapid-keys`). Without them push is silently skipped and only the
+  in-app bell works. **Regenerating later invalidates every row in
+  `push_subscriptions`** — users would each have to re-toggle notifications.
+- `VAPID_SUBJECT` must be a real `mailto:` or `https:` URL. The
+  `.env.example` default (`mailto:admin@example.com`) is a placeholder, and a
+  bare email with no `mailto:` scheme is rejected outright by web-push.
+- `CRON_TIMEZONE=Africa/Lagos`. Render runs UTC, so without it reminders go
+  out at 07:00 WAT rather than 06:00.
+- `npm run migrate` — 005 through 010 are all unapplied on a live database.
+  **005 contains a destructive DELETE** (older unread duplicates); read it
+  first, and drop that block if the history matters.
+- Anyone who tried enabling notifications before the VAPID keys existed has
+  no subscription row — `enablePushNotifications()` bailed early. They must
+  toggle it off and on again. `npm run notifications-doctor` distinguishes
+  "keys missing" from "keys fine, zero subscriptions".
+- Free-tier instance-hours: keeping one service awake 24/7 consumes most of
+  the monthly allowance. A second free service would exhaust it and suspend
+  things mid-month, which looks like the app dying for no reason. Verify
+  current limits on Render's pricing page.
+
+### 1. Timezone column — blocks three separate things
+
+`users` and `user_preferences` have no timezone. Capture it at signup from
+`Intl.DateTimeFormat().resolvedOptions().timeZone`, then switch the cron to
+run hourly and select users whose local hour matches their `reminder_time`.
+
+This is the single highest-value item because it unblocks:
+
+- **`preferred_call_time` is currently a lying control.**
+  morning/afternoon/evening/anytime sits in Settings and is read by no code
+  at all. Either wire it or pull it from the UI — leaving it is the exact
+  problem the (d) entry was about.
+- **`reminder_time` is unused** for the same reason.
+- **Streak-at-risk reminders.** Can't exist on a 06:00 job: at 6am nobody has
+  had a chance to call anyone, so "your streak is about to break" would fire
+  every single morning. Needs an evening run in the user's own timezone.
+  Milestones-only is the current stopgap (`isStreakMilestone`).
+
+`CRON_TIMEZONE` (f) is a global setting for everyone, not a substitute.
+
+### 2. `/contacts/:id` route
+
+Push payloads now carry `url`, and `sw.js` navigates on click — but there's
+no per-contact route, so every reminder lands on the Dashboard. A reminder
+about Mum should open Mum. Small change in `App.tsx` + `Contacts.tsx`; then
+set `url: /contacts/${n.contactId}` in `generateNotifications.js`.
+
+### 3. Push action buttons
+
+`actions: [{ action: 'call' }, { action: 'snooze' }]` in the payload plus
+handling in `sw.js`'s `notificationclick`. Lets someone act from the lock
+screen without opening the app, which is most of the value of push for this
+particular app. Depends on 2 for the "call" target.
+
+### 4. Marking read in-app should clear the OS notification
+
+Reading a reminder in the bell leaves it sitting in the Android shade. Needs
+a `registration.getNotifications({ tag })` sweep in `sw.js`, triggered from
+the client on `markAsRead` / `markAllAsRead`.
+
+### 5. `reminder_tone` is a dead column
+
+`friendly|professional|casual` in `user_preferences`, read by nothing, and
+superseded by the per-contact tone in (b). Never surfaced in the UI so it
+isn't lying to users — but it should be dropped or reconciled rather than
+left as a decoy for the next person reading the schema.
+
+### 6. Tuning that needs real usage data, not more thinking
+
+- `ROTATION_DAYS = 3` (reminderSignals.js) — how long before the same person
+  can be named again. Picked by judgement, never validated.
+- The quiet-day nudge (on by default) — genuinely unclear whether users find
+  it supportive or annoying. `quiet_day_nudges` lets them switch it off;
+  watch how many do.
+- `OCCASION_LEAD_DAYS = [3, 0]` — two touches per birthday. Might want 7 for
+  people who need to plan.
+
+### 7. Keep the external trigger even though the pinger works
+
+`POST /jobs/generate-notifications` + `.github/workflows/daily-reminders.yml`
+are currently belt-and-braces, since the 5-minute pinger keeps node-cron
+alive. Worth keeping: the pinger and the reminders share a single point of
+failure that fails *silently* — nothing logs an error when a job simply
+doesn't run. The job is idempotent for the day, so both firing can't
+double-send (verified in (f)).
+
+### Unrelated, but noticed and left alone
+
+`npx tsc --noEmit` reports two pre-existing errors, in
+`src/components/ImportContactsDialog.tsx` (type predicate vs optional
+`phone`) and `src/components/ui/button.tsx` (framer-motion `onDrag`
+conflict). Both are present in the original upload and untouched by any
+notification work.
+
+---
+
+## 2026-09-02 (g) — Purged the leftover "999 days" rows
+
+Reported still visible in the bell after (e). Not a regression — no code path
+can produce that string any more (verified: the only remaining `999`s in the
+tree are numeric inputs to `urgencyScore`, never rendered, and there's a test
+asserting the copy never contains it in any tone or variant). These were rows
+already written to the database, which the bell keeps showing because it
+reads the last 20 notifications regardless of age.
+
+**Why 005 missed them.** Its cleanup de-duplicates per
+`(user_id, contact_id, type)` and keeps the newest of each group. The old job
+emitted a `planned_call` AND an `inactivity` for the same contact, so each was
+the sole survivor of its own group and both stayed — precisely the two rows in
+the report.
+
+Migration `010_purge_999_notifications.sql` deletes them. Scope is narrow on
+purpose: it matches the message text AND requires `contacts.last_called IS
+NULL`, which is what proves the row is the bug rather than a genuine ~2.7-year
+gap. A second statement covers orphaned rows whose contact was deleted
+(`contact_id` SET NULL). Verified against a table of representative rows: the
+four bug rows go, including an already-read one; a real 999-day gap on a
+contact that *has* been called survives, as do the new corrected copy and
+unrelated notifications.
+
+Nothing is lost — those contacts are still never-called, so the next job run
+regenerates a correct first_call reminder for them.
+
+`notifications-doctor` now counts remaining `%999 days%` rows and names 010 as
+the fix, and its migration check covers 005-010 rather than stopping at 007.
+
+**Worth internalising:** a copy fix only changes what gets written *next*.
+Anything already in `notifications` keeps rendering until it's cleaned up or
+ages past the bell's LIMIT 20. Same applies to any future copy change.
+
+---
+
 ## 2026-09-02 (f) — Keep-alive setup: idempotency, timezone, missed runs
 
 Backend is kept awake by an external pinger, so `node-cron` does fire and the
@@ -783,6 +924,10 @@ on HTTPS), `COOKIE_DOMAIN` (leave blank outside of a real prod domain).
 Run `npm run migrate` to pick up `003_auth_hardening.sql`.
 
 ### Feature ideas (not started)
+
+> Notification-related items have been consolidated into "NEXT UP —
+> notifications" at the top of this file. What remains below is everything
+> else.
 
 - ~~Real push notifications (Web Push)~~ — DONE. Web Push is implemented
   (`server/src/lib/push.js`, `server/src/routes/push.js`, `public/sw.js`,
