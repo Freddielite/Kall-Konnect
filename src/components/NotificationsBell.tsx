@@ -1,10 +1,24 @@
-import { Bell, PhoneMissed, Clock } from 'lucide-react';
+import { Bell, PhoneMissed, Clock, Cake, MessageCircleReply, UserPlus, Flame, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useNotifications } from '@/hooks/useNotifications';
+import { useNotifications, type AppNotification } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
+
+/** One icon per notification scenario. Mirrors the type CHECK constraint in
+ * server/migrations/006_notification_scenarios.sql and SCENARIO_TYPES in
+ * server/src/jobs/reminderCopy.js — change all three together. Falls back to
+ * the clock so an unrecognised type from a newer server still renders. */
+const ICON_FOR_TYPE: Record<AppNotification['type'], typeof Clock> = {
+  planned_call: Clock,
+  inactivity: PhoneMissed,
+  occasion: Cake,
+  follow_up: MessageCircleReply,
+  first_call: UserPlus,
+  streak: Flame,
+  nudge: Sparkles,
+};
 
 /** `className` lets a caller restyle the trigger for its surroundings —
  * the Dashboard sits it on the warm gradient header, where the default
@@ -39,7 +53,7 @@ export function NotificationsBell({ className }: { className?: string }) {
           <ScrollArea className="max-h-80">
             <div className="divide-y">
               {notifications.map((n) => {
-                const Icon = n.type === 'inactivity' ? PhoneMissed : Clock;
+                const Icon = ICON_FOR_TYPE[n.type] ?? Clock;
                 return (
                   <button
                     key={n.id}

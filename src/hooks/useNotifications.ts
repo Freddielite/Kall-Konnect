@@ -7,7 +7,7 @@ export interface AppNotification {
   contact_id: string | null;
   title: string;
   message: string;
-  type: 'planned_call' | 'inactivity';
+  type: 'planned_call' | 'inactivity' | 'occasion' | 'follow_up' | 'first_call' | 'streak' | 'nudge';
   scheduled_for: string;
   sent_at: string | null;
   read_at: string | null;

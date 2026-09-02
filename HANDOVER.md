@@ -4,6 +4,127 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## 2026-09-02 (c) — One reminder per day, naming one person
+
+Corrects a wrong call in (a). The cooldown added there was per-contact and
+was applied to *delivery*, so a user with eight overdue contacts got a burst
+of pushes one morning and silence for the next six days. The app exists so
+people don't forget to call — the cadence to the USER has to be daily. What
+must not be daily is nudging about the same PERSON.
+
+**Now: exactly one routine notification per user per day.** It names one
+contact, chosen by `pickDailyContact()`. Measured over 10 days with 8
+overdue contacts: 80 pushes before, 10 after — and one every day rather than
+eight on Monday and none until Friday.
+
+**Ranking reuses the Dashboard's urgency score.** `useCallAnalytics.ts`
+already scored contacts on days overdue, follow-up signal, favourite,
+relationship and priority, and the Dashboard shows the top 7 by it. The job
+had invented its own separate idea of who was due, so the push and the
+screen the user opened could disagree about who mattered. `urgencyScore()`
+in `reminderSignals.js` is a numerically identical port — change one, change
+both.
+
+**Rotation is least-recently-named first, urgency as tiebreaker.** The first
+attempt filtered by staleness then picked purely on score, which looped over
+the top three contacts and never mentioned the other five. Ordering by
+staleness surfaces all eight over eight days. A contact named within
+ROTATION_DAYS (3) is held back entirely; if every candidate is that recent —
+the normal case at two or three contacts — it falls back to urgency and
+repeats a name, because silence is worse than repetition here.
+
+**Quiet days still send something** (`nudge` type, migration 007, no contact
+attached): short encouragement, no manufactured urgency. A daily habit with
+holes in it isn't a habit. If this grates, it's one `if` block in
+generateNotifications.js.
+
+**Occasions are exempt from the cap**, since two people can share a birthday
+and missing one because the day was "used up" would be the worst failure
+this job has. A day with an occasion skips the routine pick, so in practice
+the count is still 1 almost every day.
+
+**Verified** by replaying against a stubbed DB: one per day with no gaps and
+no bursts over 14 days; all 8 due contacts named within 8 days; a contact
+called today is never nudged about (6 quiet-day nudges instead); a
+2-contact user alternates; a snoozed contact is never named, and a user
+whose only contact is snoozed goes fully silent. Unit tests are at 45, still
+no DB, .env or `npm install` required.
+
+**Still open.** `ROTATION_DAYS` and the quiet-day nudge are both guesses that
+want real usage data. The streak-at-risk case still can't work until the job
+is timezone-aware and can run in the evening.
+
+---
+
+## 2026-09-02 (b) — Dynamic, scenario-aware reminder copy
+
+Reminders now greet the user by name and change wording by *why* they're
+firing and *who* they're about. New pure modules `reminderCopy.js` and
+`reminderSignals.js` alongside `reminderRules.js`; migration
+`006_notification_scenarios.sql`.
+
+**Six scenarios, one per contact per run**, chosen by specificity rather
+than urgency in `chooseScenario()`:
+
+  occasion > first_call > follow_up > inactivity > planned_call
+
+plus `streak`, which is user-level and can't be decided in the contact loop.
+A birthday outranks "you're overdue" because it's time-critical and
+unrepeatable; a follow-up outranks a generic nudge because it names an
+actual reason to call. `notifications.type` carries the scenario, so the
+CHECK constraint had to widen from two values to six — mirrored in
+`SCENARIO_TYPES` (reminderCopy.js) and the icon map in
+`NotificationsBell.tsx`. Change all three together.
+
+**Tone comes from the contact, not a global setting.** There were two
+overlapping tone vocabularies: `user_preferences.reminder_tone`
+(`friendly|professional|casual`, read by nothing) and the frontend's
+`TemplateTone` (`warm|casual|friendly`, per-contact, derived from
+relationship, and actually *learned* from user picks by `toneLearning.ts`).
+Notification copy uses the latter, so a nudge about your mother doesn't read
+like a nudge about a colleague. `reminder_tone` is still unused — it should
+probably be removed or reconciled rather than left as a setting that lies.
+
+**Greeting.** `users.display_name` is nullable and never required at signup
+(Google supplies one, email signup doesn't), so `greetingName()` falls back
+to the email local part — "joy.okafor@x.com" -> "Joy". It returns null for
+junk (`info@`, `noreply@`, numeric, single letters) and the greeting is
+dropped entirely in that case, with the sentence re-capitalised. That
+re-capitalisation was a real bug the tests caught: every phrasing is written
+to follow "Hey Joy, ", so without it the copy opened lowercase.
+
+**Variation** is deterministic — seeded on `contact|scenario|dayKey`, so
+re-running the job on the same day produces identical copy (no churn if the
+doctor is run twice), but different contacts and different days get
+different phrasings out of three per scenario/tone.
+
+**Occasions bypass the cooldown**, since a birthday can't be rescheduled.
+They have a narrower guard instead: `OCCASION_LEAD_DAYS` is `[3, 0]`, so two
+touches per occasion, not a daily countdown.
+
+**Streaks: milestones only.** A "your streak is at risk" nudge cannot work
+on a 06:00 job — at 6am nobody has had a chance to call anyone yet, so it
+would fire every single morning. Milestones (3/7/14/30/50/100/200/365) get
+their own notification; a live streak of 3+ otherwise just appends a line to
+whatever else fired. This wants revisiting once the job is timezone-aware
+and can run in the evening.
+
+`streaks.ts`, `noteSignals.ts` and `occasions.ts` were client-side only, so
+`reminderSignals.js` ports them behaviourally unchanged — the Dashboard and
+the notification you receive must not disagree about the same contact. Note
+`parseDateOnly`: db.js parses DATE columns as raw strings, and
+`new Date("1995-06-15")` reads as UTC midnight and can land a day early.
+
+**Tests: 30, still no DB, .env or `npm install` required** — the new modules
+are import-free for exactly this reason. Coverage includes every scenario
+producing fully-interpolated copy (asserting no `undefined`/`NaN`/`Infinity`
+leaks), tone actually changing wording, variation being stable per day,
+occasions firing only on lead days, and the follow-up vocabulary staying
+silent until there's real history. `npm run notifications-doctor` now prints
+the generated message under each contact.
+
+---
+
 ## 2026-09-02 — Notification correctness pass
 
 Four bugs in the reminder pipeline, all in `jobs/generateNotifications.js`
@@ -61,6 +182,16 @@ logic produced — older *unread* duplicates per `(user_id, contact_id, type)`,
 keeping the newest. Read rows are untouched and every contact keeps at least
 one row. Drop the `DELETE` block if you want the history; the indexes are
 the only part the new job needs.
+
+**How to test.** `cd server && npm test` runs the pure decision logic
+(`src/jobs/reminderRules.js`, split out of the job precisely so it imports
+nothing — no DB, no .env, no `npm install` needed). For anything
+DB-dependent, `npm run notifications-doctor` dry-runs the real job against
+real data and prints, per contact, whether it would fire and why not if not
+(snoozed / cooling down / not due). Add `-- --run` to execute for real
+instead of waiting for the 06:00 cron, and `-- --reset <email>` to clear a
+user's notification rows so cooldowns don't block a repeat run.
+`generateNotifications({ dryRun: true })` is what backs the dry run.
 
 **Verified** by stubbing the DB layer and replaying the job over simulated
 days against both the old and new versions (no Postgres to hand). One stale

@@ -13,7 +13,9 @@
     "migrate": "node src/migrate.js",
     "email-doctor": "node scripts/email-doctor.mjs",
     "sync-ip": "node ../scripts/sync-lan-ip.mjs",
-    "predev": "node ../scripts/sync-lan-ip.mjs || true"
+    "predev": "node ../scripts/sync-lan-ip.mjs || true",
+    "test": "node --test src/**/*.test.js",
+    "notifications-doctor": "node scripts/notifications-doctor.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

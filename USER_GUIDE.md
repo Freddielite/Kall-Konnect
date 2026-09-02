@@ -139,8 +139,21 @@ once a month — even if they're long overdue. Snoozing a contact via
 Reschedule stops their reminders until the snooze lapses, and calling
 someone resets the clock.
 
-Birthdays and anniversaries appear on the Dashboard but do not yet trigger
-their own notification.
+You get one reminder a day, naming one person. It picks whoever is most
+worth calling, and rotates so you're not hearing the same name every
+morning — though with only two or three contacts the same person will come
+round again, which is the point. If nobody's actually due, you still get a
+short note saying so rather than silence. Birthdays and anniversaries are
+the exception to the one-a-day rule, since they can't wait.
+
+Reminders are written to suit the situation. They greet you by name and
+change depending on why they're firing — an upcoming birthday reads
+differently from a long silence, and a nudge about a family member reads
+differently from one about a colleague (that follows the tone set on the
+contact). The scenarios are: an upcoming birthday, anniversary or special
+date; a contact you've never called; a call your notes suggest was left
+unfinished; a long silence; a routine check-in; and a calling-streak
+milestone.
 
 ---
 
@@ -166,8 +179,9 @@ and trust the requesting app.
 - Reminders are generated once a day on a fixed server-side schedule, so
   the "reminder time" and "preferred call time" settings are not honoured
   yet, and the timing follows the server's timezone rather than yours.
-- Birthdays and anniversaries are shown on the Dashboard but do not
-  generate notifications.
+- Streak reminders only celebrate milestones. A "your streak is about to
+  break" nudge isn't possible yet, because reminders are generated in the
+  morning rather than the evening.
 - Tapping a push notification opens the app, but not that contact.
 - No quiet hours or Focus Mode yet.
 - No fuzzy duplicate-contact detection on import.
