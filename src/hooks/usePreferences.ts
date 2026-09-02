@@ -8,6 +8,7 @@ interface Preferences {
   call_frequency: 'weekly' | 'biweekly' | 'monthly';
   preferred_call_time: 'morning' | 'afternoon' | 'evening' | 'anytime';
   auto_add_calendar_reminders: boolean;
+  quiet_day_nudges: boolean;
 }
 
 const DEFAULTS: Preferences = {
@@ -17,6 +18,7 @@ const DEFAULTS: Preferences = {
   call_frequency: 'weekly',
   preferred_call_time: 'evening',
   auto_add_calendar_reminders: false,
+  quiet_day_nudges: true,
 };
 
 export const usePreferences = () => {

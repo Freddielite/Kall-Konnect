@@ -9,7 +9,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { cooldownDaysFor, daysBetween } from './reminderRules.js';
+import { cooldownDaysFor, daysBetween, isRoutineDue, periodDaysFor } from './reminderRules.js';
 
 describe('cooldownDaysFor', () => {
   test('matches the contact call frequency', () => {
@@ -415,5 +415,41 @@ describe('daily copy', () => {
       assert.ok(!r.message.includes(bad), `${bad} leaked: ${r.message}`);
       assert.ok(!r.title.includes(bad));
     }
+  });
+});
+
+// ── Settings that actually do something ───────────────────────────────────
+
+describe('notification_frequency', () => {
+  const now = new Date(2026, 0, 10);
+  const ago = (d) => new Date(2026, 0, 10 - d).toISOString();
+
+  test('maps to a period', () => {
+    assert.equal(periodDaysFor('daily'), 1);
+    assert.equal(periodDaysFor('weekly'), 7);
+    assert.equal(periodDaysFor('monthly'), 30);
+    assert.equal(periodDaysFor(undefined), 1, 'defaults to daily');
+    assert.equal(periodDaysFor('nonsense'), 1);
+  });
+
+  test('a first-ever reminder is always due', () => {
+    assert.equal(isRoutineDue({ lastRoutineAt: null, notificationFrequency: 'monthly', now }), true);
+  });
+
+  test('daily fires every day', () => {
+    assert.equal(isRoutineDue({ lastRoutineAt: ago(1), notificationFrequency: 'daily', now }), true);
+    assert.equal(isRoutineDue({ lastRoutineAt: ago(0), notificationFrequency: 'daily', now }), false);
+  });
+
+  test('weekly holds off for six days', () => {
+    for (let d = 0; d < 7; d++) {
+      assert.equal(isRoutineDue({ lastRoutineAt: ago(d), notificationFrequency: 'weekly', now }), d >= 7);
+    }
+    assert.equal(isRoutineDue({ lastRoutineAt: ago(7), notificationFrequency: 'weekly', now }), true);
+  });
+
+  test('monthly holds off for a month', () => {
+    assert.equal(isRoutineDue({ lastRoutineAt: ago(29), notificationFrequency: 'monthly', now }), false);
+    assert.equal(isRoutineDue({ lastRoutineAt: ago(30), notificationFrequency: 'monthly', now }), true);
   });
 });

@@ -4,6 +4,44 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## 2026-09-02 (d) — Made the Settings switches real
+
+Two controls on the Settings screen were persisted, rendered, and read by
+nothing. Shipping (c)'s quiet-day nudge with no control at all would have
+made three.
+
+**`notification_frequency` now works.** daily / weekly / monthly gates the
+routine "here's who to call" reminder via `isRoutineDue()`. It has been in
+the schema and on the Settings screen since the Supabase days and the job
+always ran daily regardless of what the user picked. Occasions and streak
+milestones deliberately ignore it — they're events, not a cadence, and a
+birthday shouldn't wait for your weekly slot. Verified: weekly gives 3
+notifications over 21 days, monthly gives 2 over 60.
+
+**`quiet_day_nudges` added** (migration 008, defaults true to match (c)'s
+behaviour) with a switch in Settings, disabled while notifications are off.
+Verified: false gives 0 notifications on days nobody is due.
+
+Also corrected two pieces of helper text that described behaviour that never
+existed: "How often to check for planned calls and inactive contacts" (it
+doesn't check, it sends), and "Alert when you haven't called a contact in
+this many days" (inactivity_days doesn't trigger a separate alert, it
+changes how the reminder is worded).
+
+**`preferred_call_time` is still a lie.** morning/afternoon/evening/anytime
+is on the Settings screen and read by nothing. It can't be honoured until
+the job is timezone-aware — the same blocker as `reminder_time`. Either wire
+both together or pull the control until then; leaving it is the thing this
+entry is about.
+
+`reminder_tone` is dead too, but only as a column — it was never surfaced in
+the UI, so it isn't lying to anyone. Notification voice comes from the
+contact's tone as of (b).
+
+Tests at 50. Behaviour verified end-to-end at 11/11 in the stubbed-DB replay.
+
+---
+
 ## 2026-09-02 (c) — One reminder per day, naming one person
 
 Corrects a wrong call in (a). The cooldown added there was per-contact and

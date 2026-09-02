@@ -139,7 +139,13 @@ once a month — even if they're long overdue. Snoozing a contact via
 Reschedule stops their reminders until the snooze lapses, and calling
 someone resets the clock.
 
-You get one reminder a day, naming one person. It picks whoever is most
+You get one reminder a day by default, naming one person. Settings >
+Notification Frequency changes that to weekly or monthly if daily is too
+much; birthdays and anniversaries always come through regardless. "Nudge me
+on quiet days" controls whether you still hear from the app on days when
+nobody is actually due.
+
+Each reminder names one person. It picks whoever is most
 worth calling, and rotates so you're not hearing the same name every
 morning — though with only two or three contacts the same person will come
 round again, which is the point. If nobody's actually due, you still get a
@@ -179,6 +185,8 @@ and trust the requesting app.
 - Reminders are generated once a day on a fixed server-side schedule, so
   the "reminder time" and "preferred call time" settings are not honoured
   yet, and the timing follows the server's timezone rather than yours.
+- The "Preferred Call Time" setting isn't used yet — reminders are sent on
+  a fixed schedule regardless of what you pick.
 - Streak reminders only celebrate milestones. A "your streak is about to
   break" nudge isn't possible yet, because reminders are generated in the
   morning rather than the evening.

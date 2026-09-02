@@ -56,3 +56,25 @@ export function chooseScenario({
   if (daysSinceLastCall >= thresholdDays) return 'planned_call';
   return null;
 }
+
+/** Days between routine reminders, from user_preferences.notification_frequency.
+ * This setting has existed in the schema and in the Settings screen since the
+ * Supabase days and was read by nothing — the job always ran daily regardless
+ * of what the user picked. */
+export const FREQUENCY_PERIOD_DAYS = { daily: 1, weekly: 7, monthly: 30 };
+
+export function periodDaysFor(notificationFrequency) {
+  return FREQUENCY_PERIOD_DAYS[notificationFrequency] ?? 1;
+}
+
+/**
+ * Whether a routine reminder is due for this user today.
+ *
+ * Occasions and streak milestones ignore this — they're events, not a
+ * cadence. Only the once-per-period "here's who to call" reminder and the
+ * quiet-day nudge are gated.
+ */
+export function isRoutineDue({ lastRoutineAt, notificationFrequency, now = new Date() }) {
+  if (!lastRoutineAt) return true;
+  return daysBetween(new Date(lastRoutineAt), now) >= periodDaysFor(notificationFrequency);
+}

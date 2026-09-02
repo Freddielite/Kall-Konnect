@@ -4,7 +4,7 @@ import { sendCalendarReminderEmail } from '../lib/email.js';
 import { buildReminderIcs } from '../lib/ics.js';
 import { getValidAccessToken, upsertCalendarEvent } from '../lib/googleCalendar.js';
 import { broadcastToUser } from '../ws.js';
-import { chooseScenario, daysBetween, thresholdDaysFor } from './reminderRules.js';
+import { chooseScenario, daysBetween, isRoutineDue, thresholdDaysFor } from './reminderRules.js';
 import { buildReminder, greetingName, toneForContact } from './reminderCopy.js';
 import {
   buildFollowUpVocabulary,
@@ -98,6 +98,21 @@ export async function generateNotifications({ dryRun = false } = {}) {
       specialByContact.get(sd.contact_id).push(sd);
     }
 
+    // Honour notification_frequency. Occasions and streak milestones are
+    // events and fire regardless; only the routine "who to call" reminder
+    // and the quiet-day nudge respect the cadence.
+    const { rows: lastRoutine } = await query(
+      `SELECT max(created_at) AS at FROM notifications
+        WHERE user_id = $1
+          AND type IN ('planned_call', 'inactivity', 'follow_up', 'first_call', 'nudge')`,
+      [pref.user_id]
+    );
+    const routineDue = isRoutineDue({
+      lastRoutineAt: lastRoutine[0]?.at,
+      notificationFrequency: pref.notification_frequency,
+      now,
+    });
+
     const vocabulary = buildFollowUpVocabulary(notesByContact);
     const streak = computeCallStreak(notes.map((n) => n.created_at), now);
     const userName = greetingName({ displayName: pref.display_name, email: pref.email });
@@ -165,7 +180,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
     // been — a user with two contacts should still hear from us daily.
     // Skipped entirely on a day an occasion already fired, so a birthday
     // doesn't arrive alongside a routine nudge.
-    if (routineCandidates.length > 0 && toCreate.length === 0) {
+    if (routineDue && routineCandidates.length > 0 && toCreate.length === 0) {
       const chosen = pickDailyContact(routineCandidates, now);
       toCreate.push({
         ...buildReminder(chosen.scenario, {
@@ -186,7 +201,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
     // Nothing due at all — still say something, so the daily rhythm the app
     // is trying to build doesn't have holes in it. Deliberately short and
     // free of manufactured urgency.
-    if (toCreate.length === 0) {
+    if (routineDue && pref.quiet_day_nudges !== false && toCreate.length === 0) {
       toCreate.push({
         ...buildReminder('nudge', { userName, streak, dayKey: today }),
         contactId: null, contactName: null, scenario: 'nudge',
@@ -212,7 +227,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
     }
 
     plan.push({ userId: pref.user_id, email: pref.email, userName, streak,
-                reminders: toCreate, dueCount: routineCandidates.length });
+                reminders: toCreate, dueCount: routineCandidates.length, routineDue });
     if (dryRun) continue;
 
     for (const n of toCreate) {

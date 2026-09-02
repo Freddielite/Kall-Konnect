@@ -210,8 +210,27 @@ export default function Settings() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-2">
-                  How often to check for planned calls and inactive contacts
+                  How often you get a reminder. Each one names a single person
+                  to call. Birthdays and anniversaries always come through.
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="quiet-day-nudges" className="flex-1">
+                  <div>
+                    <p className="font-medium">Nudge me on quiet days</p>
+                    <p className="text-sm text-muted-foreground">
+                      Send a short note even when nobody's due, so the daily
+                      rhythm doesn't have gaps
+                    </p>
+                  </div>
+                </Label>
+                <Switch
+                  id="quiet-day-nudges"
+                  checked={preferences.quiet_day_nudges}
+                  onCheckedChange={(checked) => updatePreferences({ quiet_day_nudges: checked })}
+                  disabled={loading || !preferences.notifications_enabled}
+                />
               </div>
 
               <div>
@@ -231,7 +250,8 @@ export default function Settings() {
                   className="rounded-xl"
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  Alert when you haven't called a contact in this many days
+                  Past this many days a contact counts as a long silence, which
+                  changes how the reminder about them is worded
                 </p>
               </div>
             </div>
