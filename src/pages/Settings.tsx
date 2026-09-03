@@ -13,18 +13,7 @@ import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
-import {
-  enablePushNotifications,
-  disablePushNotifications,
-  sendTestPush,
-  isDeviceRegistered,
-  diagnosePushSetup,
-  getPermissionState,
-  onPermissionChange,
-  showLocalTestNotification,
-  isInstalledApp,
-  type DiagnosticStage,
-} from '@/lib/push';
+import { isPushSupported, getPushStatus, enablePush, disablePush, sendTestPush, type PushStatus } from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -62,14 +51,9 @@ export default function Settings() {
   const [nameDraft, setNameDraft] = useState('');
   const [nameSaving, setNameSaving] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
-  // null = not checked yet. The switch above reflects an account-level
-  // preference; this reflects whether THIS phone is actually registered.
-  // They are different questions and used to be conflated.
-  const [deviceReady, setDeviceReady] = useState<boolean | null>(null);
-  const [registering, setRegistering] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<DiagnosticStage[] | null>(null);
-  const [diagnosing, setDiagnosing] = useState(false);
-  const [permission, setPermission] = useState(getPermissionState());
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFadeOut, setSignOutFadeOut] = useState(false);
 
@@ -125,69 +109,40 @@ export default function Settings() {
     }
   };
 
-  const refreshDeviceStatus = useCallback(async () => {
-    setDeviceReady(await isDeviceRegistered());
+  // Read-only status check. Runs on mount and after any change; it cannot
+  // prompt or subscribe, so it is safe to call whenever.
+  const refreshPushStatus = useCallback(async () => {
+    if (!isPushSupported()) return setPushStatus('unsupported');
+    setPushStatus(await getPushStatus());
   }, []);
 
-  // Picks up a permission granted from Chrome's site settings while the app
-  // was still open, so the user doesn't come back to stale "blocked" copy.
   useEffect(() => {
-    return onPermissionChange((state) => {
-      setPermission(state);
-      void refreshDeviceStatus();
-    });
-  }, [refreshDeviceStatus]);
+    void refreshPushStatus();
+  }, [refreshPushStatus]);
 
-  useEffect(() => {
-    if (!preferences.notifications_enabled) {
-      setDeviceReady(null);
-      return;
-    }
-    void refreshDeviceStatus();
-  }, [preferences.notifications_enabled, refreshDeviceStatus]);
-
-  const handleRegisterDevice = async () => {
-    setRegistering(true);
+  // The single subscribe path in the app, called straight from onClick so the
+  // permission request lands inside the tap's activation window.
+  const handleEnablePush = async () => {
+    setPushBusy(true);
+    setPushError(null);
     try {
-      // enablePushNotifications used to be able to throw past this point,
-      // leaving the button spinning and the user with no explanation at all.
-      const result = await enablePushNotifications().catch((err: unknown) => ({
-        ok: false as const,
-        reason: err instanceof Error ? err.message : 'Setup failed unexpectedly.',
-      }));
-      if (result.ok) {
-        toast({ title: 'This device is set up for reminders' });
-      } else {
-        toast({
-          title: 'Could not set up this device',
-          description: result.reason,
-          variant: 'destructive',
-        });
-      }
-      await refreshDeviceStatus();
-      setPermission(getPermissionState());
+      await enablePush();
+      toast({ title: 'Reminders on', description: 'This device will now receive notifications.' });
+    } catch (err) {
+      setPushError(err instanceof Error ? err.message : 'Could not turn on reminders.');
     } finally {
-      setRegistering(false);
+      setPushBusy(false);
+      await refreshPushStatus();
     }
   };
 
-  const handleDiagnose = async () => {
-    setDiagnosing(true);
-    setDiagnostics(null);
+  const handleDisablePush = async () => {
+    setPushBusy(true);
     try {
-      const stages = await diagnosePushSetup();
-      setDiagnostics(stages);
-      await refreshDeviceStatus();
-    } catch (err) {
-      setDiagnostics([
-        {
-          name: 'Diagnostics',
-          ok: false,
-          detail: err instanceof Error ? err.message : 'The check itself failed.',
-        },
-      ]);
+      await disablePush();
     } finally {
-      setDiagnosing(false);
+      setPushBusy(false);
+      await refreshPushStatus();
     }
   };
 
@@ -195,7 +150,6 @@ export default function Settings() {
     setTestingPush(true);
     try {
       const result = await sendTestPush();
-      await refreshDeviceStatus();
       toast({
         title: result.ok ? 'Test notification sent' : "Test notification didn't send",
         description: result.message,
@@ -206,22 +160,11 @@ export default function Settings() {
     }
   };
 
-  const handleNotificationsToggle = async (checked: boolean) => {
+  // Purely the account-level preference. It no longer subscribes: conflating
+  // "generate reminders for me" with "this device is registered" is what let
+  // the old UI show reminders as on while nothing could receive them.
+  const handleNotificationsToggle = (checked: boolean) => {
     updatePreferences({ notifications_enabled: checked });
-    if (checked) {
-      const result = await enablePushNotifications();
-      if (!result.ok) {
-        toast({
-          title: 'Reminders will still show in-app',
-          description: result.reason,
-        });
-      }
-      await refreshDeviceStatus();
-      setPermission(getPermissionState());
-    } else {
-      await disablePushNotifications();
-      setDeviceReady(null);
-    }
   };
 
   const handleLogout = async () => {
@@ -317,104 +260,60 @@ export default function Settings() {
                 />
               </div>
               
-              {preferences.notifications_enabled && permission === 'denied' && (
+              {preferences.notifications_enabled && pushStatus && pushStatus !== 'subscribed' && (
                 <div className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3">
-                  <p className="text-sm font-medium mb-1">
-                    Notifications are blocked for this app
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Your browser was told to block them, and it won't ask again
-                    on its own. Re-allowing takes a few taps:
-                  </p>
-                  <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
-                    {isInstalledApp() ? (
-                      <>
-                        <li>Open this site in Chrome instead of the installed app.</li>
-                        <li>Tap the icon to the left of the web address.</li>
-                        <li>Tap Permissions, then Notifications, then Allow.</li>
-                        <li>Reopen the installed app and try again.</li>
-                      </>
-                    ) : (
-                      <>
-                        <li>Tap the icon to the left of the web address.</li>
-                        <li>Tap Permissions, then Notifications, then Allow.</li>
-                        <li>Reload this page and try again.</li>
-                      </>
-                    )}
-                    <li>
-                      Also check Android Settings, Apps, then this app, and make
-                      sure Notifications is switched on.
-                    </li>
-                  </ol>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl mt-3"
-                    onClick={() => {
-                      setPermission(getPermissionState());
-                      void refreshDeviceStatus();
-                    }}
-                  >
-                    I've allowed it — check again
-                  </Button>
+                  {pushStatus === 'unsupported' && (
+                    <p className="text-sm text-muted-foreground">
+                      This browser can't receive push notifications.
+                    </p>
+                  )}
+
+                  {pushStatus === 'needs-install' && (
+                    <p className="text-sm text-muted-foreground">
+                      On iPhone, install the app first: tap Share, then Add to
+                      Home Screen, and open it from there.
+                    </p>
+                  )}
+
+                  {pushStatus === 'denied' && (
+                    <>
+                      <p className="text-sm font-medium mb-1">Notifications are blocked</p>
+                      <p className="text-sm text-muted-foreground">
+                        Your browser won't ask again on its own. Open this site's
+                        settings in Chrome, set Notifications to Allow, then
+                        reopen the app.
+                      </p>
+                    </>
+                  )}
+
+                  {pushStatus === 'not-subscribed' && (
+                    <>
+                      <p className="text-sm font-medium mb-1">
+                        This device isn't receiving reminders yet
+                      </p>
+                      <p className="text-sm text-muted-foreground mb-3">
+                        Your phone will ask permission — choose Allow.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={handleEnablePush}
+                        disabled={pushBusy}
+                      >
+                        {pushBusy ? 'Turning on…' : 'Turn on reminders'}
+                      </Button>
+                    </>
+                  )}
+
+                  {pushError && <p className="text-sm text-destructive mt-2">{pushError}</p>}
                 </div>
               )}
 
-              {preferences.notifications_enabled && permission !== 'denied' && deviceReady === false && (
-                <div className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3">
-                  <p className="text-sm font-medium mb-1">
-                    This phone isn't set up to receive reminders yet
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Your phone will ask whether to allow notifications. Choose
-                    <strong> Allow</strong> — if that prompt closes without an
-                    answer, nothing can reach your lock screen.
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={handleRegisterDevice}
-                    disabled={registering}
-                  >
-                    {registering ? 'Setting up…' : 'Turn on reminders'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-xl ml-2"
-                    onClick={handleDiagnose}
-                    disabled={diagnosing}
-                  >
-                    {diagnosing ? 'Checking…' : 'Why not?'}
-                  </Button>
-                </div>
-              )}
-
-              {diagnostics && (
-                <div className="rounded-xl border p-3 space-y-2">
-                  <p className="text-sm font-medium">Device check</p>
-                  {diagnostics.map((stage) => (
-                    <div key={stage.name} className="flex gap-2 text-sm">
-                      <span aria-hidden className={stage.ok ? 'text-green-500' : 'text-destructive'}>
-                        {stage.ok ? '✓' : '✕'}
-                      </span>
-                      <div>
-                        <p className="font-medium">{stage.name}</p>
-                        <p className="text-xs text-muted-foreground break-words">{stage.detail}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {preferences.notifications_enabled && deviceReady && (
+              {preferences.notifications_enabled && pushStatus === 'subscribed' && (
                 <div className="rounded-xl border border-dashed p-3">
                   <p className="text-sm text-muted-foreground mb-2">
-                    This device is registered. Send a reminder to it right now to
-                    make sure it arrives.
+                    This device is receiving reminders.
                   </p>
                   <Button
                     type="button"
@@ -431,16 +330,10 @@ export default function Settings() {
                     variant="ghost"
                     size="sm"
                     className="rounded-xl ml-2"
-                    onClick={async () => {
-                      const result = await showLocalTestNotification();
-                      toast({
-                        title: result.ok ? 'Local test shown' : 'Local test failed',
-                        description: result.message,
-                        variant: result.ok ? undefined : 'destructive',
-                      });
-                    }}
+                    onClick={handleDisablePush}
+                    disabled={pushBusy}
                   >
-                    Local test
+                    Turn off on this device
                   </Button>
                 </div>
               )}
