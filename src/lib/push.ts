@@ -9,6 +9,21 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
   return bytes;
 }
 
+/** 'denied' is a dead end that no amount of retrying fixes — the browser will
+ * not prompt again — so the UI has to branch on this rather than offering a
+ * button that can only fail. */
+export function getPermissionState(): NotificationPermission | 'unsupported' {
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission;
+}
+
+/** Whether this is an installed PWA rather than a browser tab. Matters for
+ * un-blocking instructions: the permission lives with the site in the
+ * browser, which an installed app has no UI to reach. */
+export function isInstalledApp(): boolean {
+  return isStandalone();
+}
+
 export function isPushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }

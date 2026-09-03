@@ -19,8 +19,11 @@ import {
   sendTestPush,
   isDeviceRegistered,
   diagnosePushSetup,
+  getPermissionState,
+  isInstalledApp,
   type DiagnosticStage,
 } from '@/lib/push';
+import { PushPermissionDialog } from '@/components/PushPermissionDialog';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -65,6 +68,8 @@ export default function Settings() {
   const [registering, setRegistering] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticStage[] | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [primerOpen, setPrimerOpen] = useState(false);
+  const [permission, setPermission] = useState(getPermissionState());
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFadeOut, setSignOutFadeOut] = useState(false);
 
@@ -132,7 +137,18 @@ export default function Settings() {
     void refreshDeviceStatus();
   }, [preferences.notifications_enabled, refreshDeviceStatus]);
 
-  const handleRegisterDevice = async () => {
+  /** Opens our own dialog first when the browser hasn't been asked yet. Once
+   * permission is already granted there's nothing to explain, so it goes
+   * straight through. */
+  const handleRegisterDevice = () => {
+    if (getPermissionState() === 'default') {
+      setPrimerOpen(true);
+      return;
+    }
+    void runRegistration();
+  };
+
+  const runRegistration = async () => {
     setRegistering(true);
     try {
       // enablePushNotifications used to be able to throw past this point,
@@ -151,6 +167,8 @@ export default function Settings() {
         });
       }
       await refreshDeviceStatus();
+      setPermission(getPermissionState());
+      setPrimerOpen(false);
     } finally {
       setRegistering(false);
     }
@@ -194,6 +212,10 @@ export default function Settings() {
   const handleNotificationsToggle = async (checked: boolean) => {
     updatePreferences({ notifications_enabled: checked });
     if (checked) {
+      if (getPermissionState() === 'default') {
+        setPrimerOpen(true);
+        return;
+      }
       const result = await enablePushNotifications();
       if (!result.ok) {
         toast({
@@ -202,6 +224,7 @@ export default function Settings() {
         });
       }
       await refreshDeviceStatus();
+      setPermission(getPermissionState());
     } else {
       await disablePushNotifications();
       setDeviceReady(null);
@@ -301,7 +324,51 @@ export default function Settings() {
                 />
               </div>
               
-              {preferences.notifications_enabled && deviceReady === false && (
+              {preferences.notifications_enabled && permission === 'denied' && (
+                <div className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3">
+                  <p className="text-sm font-medium mb-1">
+                    Notifications are blocked for this app
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Your browser was told to block them, and it won't ask again
+                    on its own. Re-allowing takes a few taps:
+                  </p>
+                  <ol className="list-decimal pl-5 space-y-1 text-sm text-muted-foreground">
+                    {isInstalledApp() ? (
+                      <>
+                        <li>Open this site in Chrome instead of the installed app.</li>
+                        <li>Tap the icon to the left of the web address.</li>
+                        <li>Tap Permissions, then Notifications, then Allow.</li>
+                        <li>Reopen the installed app and try again.</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Tap the icon to the left of the web address.</li>
+                        <li>Tap Permissions, then Notifications, then Allow.</li>
+                        <li>Reload this page and try again.</li>
+                      </>
+                    )}
+                    <li>
+                      Also check Android Settings, Apps, then this app, and make
+                      sure Notifications is switched on.
+                    </li>
+                  </ol>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl mt-3"
+                    onClick={() => {
+                      setPermission(getPermissionState());
+                      void refreshDeviceStatus();
+                    }}
+                  >
+                    I've allowed it — check again
+                  </Button>
+                </div>
+              )}
+
+              {preferences.notifications_enabled && permission !== 'denied' && deviceReady === false && (
                 <div className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3">
                   <p className="text-sm font-medium mb-1">
                     This phone isn't set up to receive reminders yet
@@ -648,6 +715,13 @@ export default function Settings() {
         </Button>
       </div>
     </motion.div>
+
+    <PushPermissionDialog
+      open={primerOpen}
+      onOpenChange={setPrimerOpen}
+      onEnable={() => void runRegistration()}
+      enabling={registering}
+    />
     </>
   );
 }
