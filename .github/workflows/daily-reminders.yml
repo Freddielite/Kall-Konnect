@@ -20,28 +20,60 @@ name: Daily reminders
 
 on:
   schedule:
-    # 06:00 UTC. Cron here is always UTC — adjust for your users' timezone.
-    # Nigeria (WAT, UTC+1) 06:00 would be '0 5 * * *'.
-    - cron: '0 6 * * *'
+    # 05:00 UTC = 06:00 WAT (Nigeria, UTC+1). GitHub cron is always UTC.
+    - cron: '0 5 * * *'
   workflow_dispatch: # lets you run it by hand from the Actions tab
 
 jobs:
   trigger:
     runs-on: ubuntu-latest
     steps:
-      - name: Call generate-notifications
+      # Checked separately so a missing repository secret says so plainly,
+      # instead of curl silently requesting "/jobs/generate-notifications"
+      # with no host and the run failing with an unexplained red X.
+      - name: Check required secrets are set
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          missing=0
+          if [ -z "$API_URL" ]; then
+            echo "::error::Repository secret API_URL is not set. Add it under Settings > Secrets and variables > Actions, e.g. https://kall-konnect.onrender.com (no trailing slash)."
+            missing=1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Repository secret CRON_SECRET is not set. It must match CRON_SECRET in the Render dashboard exactly."
+            missing=1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+
+      - name: Call generate-notifications
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # Strip any trailing slash so we never request a double-slashed path.
+          base="${API_URL%/}"
+
           # --max-time 180: a sleeping free-tier instance takes 30-60s to wake
           # before it even starts the job, so a short timeout would abort a
           # perfectly healthy run.
           code=$(curl -s -o /tmp/body.txt -w '%{http_code}' \
             --max-time 180 \
-            -X POST "${{ secrets.API_URL }}/jobs/generate-notifications" \
-            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
-          echo "HTTP $code"
-          cat /tmp/body.txt
+            -X POST "$base/jobs/generate-notifications" \
+            -H "x-cron-secret: $CRON_SECRET") || true
+
+          echo "HTTP ${code:-<no response>}"
+          cat /tmp/body.txt 2>/dev/null
           echo
-          if [ "$code" != "200" ]; then
-            echo "::error::Reminder job failed with HTTP $code"
-            exit 1
-          fi
+
+          # Each status has exactly one likely cause, so name it rather than
+          # leaving whoever reads this at 6am to go and guess.
+          case "$code" in
+            200) echo "Reminder job ran." ;;
+            "")  echo "::error::No response from $base — the request timed out or the host is wrong. Check API_URL and that the service is deployed."; exit 1 ;;
+            401) echo "::error::HTTP 401 — CRON_SECRET here does not match CRON_SECRET on the server. Re-copy it into both, making sure there is no trailing space or newline."; exit 1 ;;
+            404) echo "::error::HTTP 404 — the endpoint was not found at $base/jobs/generate-notifications. API_URL is probably pointing at the frontend rather than the backend."; exit 1 ;;
+            503) echo "::error::HTTP 503 — CRON_SECRET is not set on the server. Add it in the Render dashboard under Environment and redeploy."; exit 1 ;;
+            *)   echo "::error::Reminder job failed with HTTP $code"; exit 1 ;;
+          esac

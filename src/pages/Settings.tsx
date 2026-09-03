@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
-import { enablePushNotifications, disablePushNotifications } from '@/lib/push';
+import { enablePushNotifications, disablePushNotifications, sendTestPush } from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -50,6 +50,7 @@ export default function Settings() {
   const { logout, user, updateDisplayName } = useAuth();
   const [nameDraft, setNameDraft] = useState('');
   const [nameSaving, setNameSaving] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFadeOut, setSignOutFadeOut] = useState(false);
 
@@ -102,6 +103,20 @@ export default function Settings() {
       toast({ title: 'Could not update name', description: errorMessage(error), variant: 'destructive' });
     } finally {
       setNameSaving(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    setTestingPush(true);
+    try {
+      const result = await sendTestPush();
+      toast({
+        title: result.ok ? 'Test notification sent' : "Test notification didn't send",
+        description: result.message,
+        variant: result.ok ? undefined : 'destructive',
+      });
+    } finally {
+      setTestingPush(false);
     }
   };
 
@@ -213,6 +228,25 @@ export default function Settings() {
                 />
               </div>
               
+              {preferences.notifications_enabled && (
+                <div className="rounded-xl border border-dashed p-3">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Not sure reminders are reaching your phone? Send one to this
+                    device right now.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={handleTestPush}
+                    disabled={testingPush}
+                  >
+                    {testingPush ? 'Sending…' : 'Send a test notification'}
+                  </Button>
+                </div>
+              )}
+
               <div>
                 <Label className="mb-2 block">Notification Frequency</Label>
                 <Select

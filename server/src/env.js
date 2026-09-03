@@ -72,7 +72,11 @@ export const env = {
   // scheduler can run the daily reminder job. Required on any host that
   // sleeps when idle (Render's free tier does) — an in-process cron cannot
   // fire while the process is spun down. Any long random string.
-  cronSecret: process.env.CRON_SECRET ?? '',
+  // clean() matters here as much as it does for SENDGRID_API_KEY: a secret
+  // pasted into the Render dashboard with a trailing newline or space compares
+  // unequal to the same secret held in GitHub Actions, so the scheduler gets a
+  // permanent 401 that looks exactly like "reminders just stopped".
+  cronSecret: clean(process.env.CRON_SECRET) ?? '',
 
   // When the daily reminder runs, and in which timezone. Server time is UTC
   // on Render, so the default reaches a Nigerian user (WAT, UTC+1) at 07:00.
@@ -86,12 +90,14 @@ export const env = {
 
   // Web Push (real push notifications, delivered even when no tab is
   // open). Generate a keypair with: npx web-push generate-vapid-keys
-  vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? '',
-  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? '',
+  // Trimmed for the same reason as CRON_SECRET — a stray newline on the
+  // private key makes web-push throw on every single send.
+  vapidPublicKey: clean(process.env.VAPID_PUBLIC_KEY) ?? '',
+  vapidPrivateKey: clean(process.env.VAPID_PRIVATE_KEY) ?? '',
   // Contact address/URL Web Push services can use to reach you about this
   // key pair, e.g. 'mailto:you@example.com'. Required by the spec if the
   // keys are set at all.
-  vapidSubject: process.env.VAPID_SUBJECT ?? 'mailto:admin@example.com',
+  vapidSubject: clean(process.env.VAPID_SUBJECT) ?? 'mailto:admin@example.com',
 
   // SendGrid (transactional email: password reset, email verification,
   // calendar-reminder invites). Free tier: 100 emails/day, no domain
