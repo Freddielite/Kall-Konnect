@@ -15,7 +15,8 @@
     "sync-ip": "node ../scripts/sync-lan-ip.mjs",
     "predev": "node ../scripts/sync-lan-ip.mjs || true",
     "test": "node --test src/**/*.test.js",
-    "notifications-doctor": "node scripts/notifications-doctor.mjs"
+    "notifications-doctor": "node scripts/notifications-doctor.mjs",
+    "push-doctor": "node scripts/push-doctor.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

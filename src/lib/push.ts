@@ -30,6 +30,44 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
 
 export type PushStatus = 'unsupported' | 'needs-install' | 'denied' | 'not-subscribed' | 'subscribed';
 
+/** Brave disables Google's push messaging service by default, for privacy
+ * reasons. Web Push in every Chromium browser is delivered over that service,
+ * so with it off, subscribe() fails with "Registration failed - push service
+ * error" no matter how correct the app is. Nothing in this codebase can work
+ * around it; the user has to flip the setting. */
+async function isBrave(): Promise<boolean> {
+  const nav = navigator as { brave?: { isBrave?: () => Promise<boolean> } };
+  try {
+    return (await nav.brave?.isBrave?.()) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Turns a raw subscribe() failure into something a person can act on. The
+ * browser's own wording ("push service error") names the layer that failed
+ * but not the cause, which sends people looking for bugs in the app. */
+export async function explainSubscribeError(err: unknown): Promise<string> {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  if (/push service error|Registration failed|AbortError/i.test(raw)) {
+    if (await isBrave()) {
+      return (
+        'Brave blocks the push service by default. Open brave://settings/privacy, ' +
+        'turn on "Use Google services for push messaging", restart Brave completely, ' +
+        'then try again. Or use Chrome, where it works without changing anything.'
+      );
+    }
+    return (
+      'The browser could not reach its push service. This usually means push ' +
+      'messaging is disabled in the browser\'s settings, or a privacy extension ' +
+      'is blocking it. Trying in Chrome is the quickest way to confirm.'
+    );
+  }
+
+  return raw;
+}
+
 export function isPushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
@@ -85,10 +123,15 @@ export async function enablePush(): Promise<void> {
   }
 
   const reg = await navigator.serviceWorker.ready;
-  const subscription = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(publicKey),
-  });
+  let subscription: PushSubscription;
+  try {
+    subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  } catch (err) {
+    throw new Error(await explainSubscribeError(err));
+  }
 
   await api.post('/push/subscribe', subscription.toJSON());
 }
