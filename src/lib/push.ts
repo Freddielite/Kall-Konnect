@@ -355,3 +355,41 @@ export async function diagnosePushSetup(): Promise<DiagnosticStage[]> {
 
   return stages;
 }
+
+/** Shows a notification directly from the page, with no server and no push
+ * service involved.
+ *
+ * This isolates the last ambiguous case. When the server reports a successful
+ * send and nothing appears, the message was accepted by Google's push service
+ * — so the subscription, the VAPID keys and the encryption are all fine, and
+ * the failure is somewhere on the device. If this local notification also
+ * fails to appear, the phone is suppressing display (OS-level notification
+ * settings, battery optimisation, or a manufacturer ROM killing background
+ * delivery) and no amount of server-side work will fix it. If it DOES appear,
+ * display works and the problem is specifically the delivery path. */
+export async function showLocalTestNotification(): Promise<{ ok: boolean; message: string }> {
+  if (!isPushSupported()) return { ok: false, message: 'Not supported in this browser.' };
+  if (Notification.permission !== 'granted') {
+    return { ok: false, message: `Permission is "${Notification.permission}", so nothing can be shown.` };
+  }
+
+  try {
+    const registration = await withTimeout(
+      registerServiceWorker(),
+      15_000,
+      'The service worker did not activate within 15 seconds.'
+    );
+    await registration.showNotification('Kall Konnect local test', {
+      body: 'If you can see this, your phone can display notifications.',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: 'kk-local-test',
+    });
+    return {
+      ok: true,
+      message: 'Shown. If nothing appeared, your phone is blocking notifications for this app.',
+    };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Could not show a notification.' };
+  }
+}

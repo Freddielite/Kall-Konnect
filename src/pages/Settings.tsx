@@ -20,10 +20,10 @@ import {
   isDeviceRegistered,
   diagnosePushSetup,
   getPermissionState,
+  showLocalTestNotification,
   isInstalledApp,
   type DiagnosticStage,
 } from '@/lib/push';
-import { PushPermissionDialog } from '@/components/PushPermissionDialog';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -68,7 +68,6 @@ export default function Settings() {
   const [registering, setRegistering] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticStage[] | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
-  const [primerOpen, setPrimerOpen] = useState(false);
   const [permission, setPermission] = useState(getPermissionState());
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFadeOut, setSignOutFadeOut] = useState(false);
@@ -137,18 +136,7 @@ export default function Settings() {
     void refreshDeviceStatus();
   }, [preferences.notifications_enabled, refreshDeviceStatus]);
 
-  /** Opens our own dialog first when the browser hasn't been asked yet. Once
-   * permission is already granted there's nothing to explain, so it goes
-   * straight through. */
-  const handleRegisterDevice = () => {
-    if (getPermissionState() === 'default') {
-      setPrimerOpen(true);
-      return;
-    }
-    void runRegistration();
-  };
-
-  const runRegistration = async () => {
+  const handleRegisterDevice = async () => {
     setRegistering(true);
     try {
       // enablePushNotifications used to be able to throw past this point,
@@ -168,7 +156,6 @@ export default function Settings() {
       }
       await refreshDeviceStatus();
       setPermission(getPermissionState());
-      setPrimerOpen(false);
     } finally {
       setRegistering(false);
     }
@@ -212,10 +199,6 @@ export default function Settings() {
   const handleNotificationsToggle = async (checked: boolean) => {
     updatePreferences({ notifications_enabled: checked });
     if (checked) {
-      if (getPermissionState() === 'default') {
-        setPrimerOpen(true);
-        return;
-      }
       const result = await enablePushNotifications();
       if (!result.ok) {
         toast({
@@ -432,6 +415,22 @@ export default function Settings() {
                     disabled={testingPush}
                   >
                     {testingPush ? 'Sending…' : 'Send a test notification'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl ml-2"
+                    onClick={async () => {
+                      const result = await showLocalTestNotification();
+                      toast({
+                        title: result.ok ? 'Local test shown' : 'Local test failed',
+                        description: result.message,
+                        variant: result.ok ? undefined : 'destructive',
+                      });
+                    }}
+                  >
+                    Local test
                   </Button>
                 </div>
               )}
@@ -715,13 +714,6 @@ export default function Settings() {
         </Button>
       </div>
     </motion.div>
-
-    <PushPermissionDialog
-      open={primerOpen}
-      onOpenChange={setPrimerOpen}
-      onEnable={() => void runRegistration()}
-      enabling={registering}
-    />
     </>
   );
 }
