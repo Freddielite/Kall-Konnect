@@ -147,6 +147,39 @@ function sameKey(current: ArrayBuffer, serverKeyBase64: string): boolean {
   return actual.every((byte, i) => byte === expected[i]);
 }
 
+/** Throws away this device's subscription and creates a genuinely new one.
+ *
+ * getSubscription() can keep returning an object the push service has already
+ * discarded — clearing site data or reinstalling the app does exactly this.
+ * Re-posting that object achieves nothing: the server sends, gets 410 Gone,
+ * deletes the row, and the next sync posts the same dead endpoint again. The
+ * only way out is to unsubscribe locally first, which forces the browser to
+ * mint a new endpoint.
+ *
+ * Cannot prompt: permission is already granted by the time this runs. */
+export async function forceResubscribe(): Promise<void> {
+  if (!isPushSupported()) return;
+  if (Notification.permission !== 'granted') return;
+
+  const { publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key');
+  if (!publicKey) throw new Error("Push isn't configured on the server.");
+
+  const reg = await navigator.serviceWorker.ready;
+  const existing = await reg.pushManager.getSubscription();
+  if (existing) {
+    // Tell the server to drop it too, so a dead endpoint can't linger in the
+    // table if the unsubscribe below succeeds but a later step fails.
+    await api.post('/push/unsubscribe', { endpoint: existing.endpoint }).catch(() => {});
+    await existing.unsubscribe().catch(() => {});
+  }
+
+  const subscription = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey),
+  });
+  await api.post('/push/subscribe', subscription.toJSON());
+}
+
 export async function disablePush(): Promise<void> {
   if (!isPushSupported()) return;
   const reg = await navigator.serviceWorker.ready;
@@ -168,9 +201,19 @@ export async function sendTestPush(): Promise<{ ok: boolean; message: string }> 
     const result = await api.post<{ message?: string }>('/push/test', {});
     return { ok: true, message: result.message ?? 'Test notification sent.' };
   } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : 'Could not send a test notification.',
-    };
+    // A failed send means the endpoint the browser gave us is dead. Retrying
+    // with the same one is pointless, so mint a new subscription and try once
+    // more. One retry only — if a fresh endpoint also fails, the problem is
+    // not staleness and looping would just hide it.
+    try {
+      await forceResubscribe();
+      const retry = await api.post<{ message?: string }>('/push/test', {});
+      return { ok: true, message: retry.message ?? 'Test notification sent.' };
+    } catch (retryErr) {
+      return {
+        ok: false,
+        message: retryErr instanceof Error ? retryErr.message : 'Could not send a test notification.',
+      };
+    }
   }
 }

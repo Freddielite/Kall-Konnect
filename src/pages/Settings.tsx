@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
-import { isPushSupported, getPushStatus, enablePush, disablePush, sendTestPush, ensureRegistered, type PushStatus } from '@/lib/push';
+import { isPushSupported, getPushStatus, enablePush, disablePush, sendTestPush, ensureRegistered, forceResubscribe, type PushStatus } from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -134,6 +134,20 @@ export default function Settings() {
       toast({ title: 'Reminders on', description: 'This device will now receive notifications.' });
     } catch (err) {
       setPushError(err instanceof Error ? err.message : 'Could not turn on reminders.');
+    } finally {
+      setPushBusy(false);
+      await refreshPushStatus();
+    }
+  };
+
+  const handleResubscribe = async () => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      await forceResubscribe();
+      toast({ title: 'Device re-registered', description: 'Try the test notification again.' });
+    } catch (err) {
+      setPushError(err instanceof Error ? err.message : 'Could not re-register this device.');
     } finally {
       setPushBusy(false);
       await refreshPushStatus();
@@ -334,11 +348,22 @@ export default function Settings() {
                     variant="ghost"
                     size="sm"
                     className="rounded-xl ml-2"
+                    onClick={handleResubscribe}
+                    disabled={pushBusy}
+                  >
+                    {pushBusy ? 'Re-registering…' : 'Re-register'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl mt-2 w-full"
                     onClick={handleDisablePush}
                     disabled={pushBusy}
                   >
                     Turn off on this device
                   </Button>
+                  {pushError && <p className="text-sm text-destructive mt-2">{pushError}</p>}
                 </div>
               )}
 
