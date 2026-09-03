@@ -20,6 +20,7 @@ import {
   isDeviceRegistered,
   diagnosePushSetup,
   getPermissionState,
+  onPermissionChange,
   showLocalTestNotification,
   isInstalledApp,
   type DiagnosticStage,
@@ -127,6 +128,15 @@ export default function Settings() {
   const refreshDeviceStatus = useCallback(async () => {
     setDeviceReady(await isDeviceRegistered());
   }, []);
+
+  // Picks up a permission granted from Chrome's site settings while the app
+  // was still open, so the user doesn't come back to stale "blocked" copy.
+  useEffect(() => {
+    return onPermissionChange((state) => {
+      setPermission(state);
+      void refreshDeviceStatus();
+    });
+  }, [refreshDeviceStatus]);
 
   useEffect(() => {
     if (!preferences.notifications_enabled) {

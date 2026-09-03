@@ -47,9 +47,29 @@ function isStandalone(): boolean {
 
 export async function isPushEnabled(): Promise<boolean> {
   if (!isPushSupported()) return false;
-  const registration = await navigator.serviceWorker.getRegistration('/sw.js');
-  const subscription = await registration?.pushManager.getSubscription();
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
   return !!subscription;
+}
+
+/** Fires whenever the notification permission changes — including when the
+ * user allows it from Chrome's site settings, entirely outside this page.
+ *
+ * Without this, someone who follows the un-blocking instructions comes back to
+ * an app still insisting notifications are blocked, and has to know to press a
+ * refresh button. Returns an unsubscribe function. */
+export function onPermissionChange(callback: (state: NotificationPermission) => void): () => void {
+  if (!('permissions' in navigator)) return () => {};
+  let cleanup = () => {};
+  void navigator.permissions
+    .query({ name: 'notifications' as PermissionName })
+    .then((status) => {
+      const handler = () => callback(status.state as NotificationPermission);
+      status.addEventListener('change', handler);
+      cleanup = () => status.removeEventListener('change', handler);
+    })
+    .catch(() => {});
+  return () => cleanup();
 }
 
 /** Requests permission, registers the service worker, and subscribes.
@@ -148,9 +168,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
-  const registration = await navigator.serviceWorker.register('/sw.js');
-  await navigator.serviceWorker.ready;
-  return registration;
+  // Register, then resolve against serviceWorker.ready rather than the
+  // registration object returned above. ready resolves for whichever worker is
+  // actually ACTIVE, which is what pushManager needs; the returned registration
+  // can still be in 'installing' when a fresh worker is being deployed, and
+  // subscribing against it fails intermittently in exactly the way that looks
+  // like a flaky bug. This is what the focus-tracker reference does.
+  await navigator.serviceWorker.register('/sw.js');
+  return navigator.serviceWorker.ready;
 }
 
 function sameKey(current: ArrayBuffer, serverKeyBase64: string): boolean {
