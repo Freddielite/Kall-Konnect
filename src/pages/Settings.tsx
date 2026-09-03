@@ -357,9 +357,9 @@ export default function Settings() {
                     This phone isn't set up to receive reminders yet
                   </p>
                   <p className="text-sm text-muted-foreground mb-3">
-                    Reminders are on for your account, but this device has never
-                    been registered, so nothing can reach your lock screen. This
-                    takes one tap and a permission prompt.
+                    Your phone will ask whether to allow notifications. Choose
+                    <strong> Allow</strong> — if that prompt closes without an
+                    answer, nothing can reach your lock screen.
                   </p>
                   <Button
                     type="button"
@@ -368,7 +368,7 @@ export default function Settings() {
                     onClick={handleRegisterDevice}
                     disabled={registering}
                   >
-                    {registering ? 'Setting up…' : 'Set up this device'}
+                    {registering ? 'Setting up…' : 'Turn on reminders'}
                   </Button>
                   <Button
                     type="button"

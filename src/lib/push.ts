@@ -67,8 +67,28 @@ export async function enablePushNotifications(): Promise<{ ok: boolean; reason?:
     };
   }
 
+  // Requested before any await, so it still runs inside the activation window
+  // that follows the user's tap. Chrome silently auto-dismisses a permission
+  // request made after a network round-trip, which leaves permission at
+  // "default" and looks to the user like the prompt did nothing.
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return { ok: false, reason: 'Notification permission was not granted.' };
+  if (permission === 'denied') {
+    return {
+      ok: false,
+      reason:
+        'Notifications are blocked for this app. The browser will not ask ' +
+        'again — re-allow them in site settings, then try once more.',
+    };
+  }
+  if (permission !== 'granted') {
+    // 'default' means the prompt was dismissed (swiped away, or the app lost
+    // focus) rather than refused. Nothing is broken and it can simply be
+    // asked again, so the wording should not sound like a refusal.
+    return {
+      ok: false,
+      reason: 'The prompt closed without an answer. Tap again and choose Allow.',
+    };
+  }
 
   const { publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key');
   if (!publicKey) return { ok: false, reason: 'Push is not configured on the server yet.' };
@@ -243,12 +263,16 @@ export interface DiagnosticStage {
   detail: string;
 }
 
-/** Walks the push setup one stage at a time and reports where it breaks.
+/** Walks the push setup and reports where it breaks.
  *
- * Every stage below has, at some point, been the sole reason push "didn't
- * work" — and from the outside they all look identical: a toggle that stays
- * on and a phone that stays silent. Guessing between them remotely is
- * expensive, so this just asks each question directly and shows the answer. */
+ * STRICTLY READ-ONLY. An earlier version of this subscribed as it went, which
+ * was a bad idea for a reason that took a while to surface: subscribe() raises
+ * the permission prompt itself, and by the time the check reached it several
+ * network round-trips had passed. Chrome only honours a permission request
+ * inside the brief activation window that follows a real tap, so the prompt
+ * was auto-dismissed — leaving permission at "default" and creating a
+ * duplicate device row. A diagnostic that changes what it is measuring is
+ * worse than no diagnostic. This one only observes. */
 export async function diagnosePushSetup(): Promise<DiagnosticStage[]> {
   const stages: DiagnosticStage[] = [];
   const add = (name: string, ok: boolean, detail: string) => stages.push({ name, ok, detail });
@@ -258,8 +282,6 @@ export async function diagnosePushSetup(): Promise<DiagnosticStage[]> {
     return stages;
   }
   if (!window.isSecureContext) {
-    // http:// on a LAN IP is the usual cause. Push requires a secure origin;
-    // localhost is exempt, a bare IP is not.
     add('Secure origin', false, `Page is not a secure context (${window.location.origin}). Push requires HTTPS.`);
     return stages;
   }
@@ -270,87 +292,59 @@ export async function diagnosePushSetup(): Promise<DiagnosticStage[]> {
     return stages;
   }
 
-  add('Permission', Notification.permission === 'granted', `Notification.permission is "${Notification.permission}".`);
+  const permission = Notification.permission;
+  add(
+    'Permission',
+    permission === 'granted',
+    permission === 'granted'
+      ? 'Notifications are allowed.'
+      : permission === 'denied'
+        ? 'Blocked. The browser will not ask again; it has to be re-allowed in site settings.'
+        : 'Not granted yet. The prompt was dismissed rather than answered — tap "Turn on reminders" and choose Allow.'
+  );
 
-  // Fetch the worker script directly. A host that rewrites unknown paths to
-  // index.html returns HTML here, and the browser refuses to register a
-  // worker with a text/html MIME type — the error is easy to miss in a
-  // console you can't open on a phone.
   try {
     const res = await fetch('/sw.js', { cache: 'no-store' });
     const type = res.headers.get('content-type') ?? 'unknown';
     const isScript = res.ok && /javascript|ecmascript/i.test(type);
-    add(
-      'sw.js is served correctly',
-      isScript,
-      isScript
-        ? `HTTP ${res.status}, ${type}`
-        : `HTTP ${res.status}, content-type "${type}". The host is serving something other than JavaScript at /sw.js — usually index.html from a catch-all rewrite.`
-    );
+    add('sw.js is served correctly', isScript, isScript ? `HTTP ${res.status}, ${type}` : `HTTP ${res.status}, content-type "${type}".`);
   } catch (err) {
     add('sw.js is served correctly', false, err instanceof Error ? err.message : 'Could not fetch /sw.js.');
   }
 
-  let registration: ServiceWorkerRegistration | null = null;
-  try {
-    registration = await withTimeout(registerServiceWorker(), 15_000, 'Timed out waiting for the worker to activate.');
-    add('Service worker active', true, `Scope: ${registration.scope}`);
-  } catch (err) {
-    add('Service worker active', false, err instanceof Error ? err.message : 'Registration failed.');
-    return stages;
-  }
+  const registration = await navigator.serviceWorker.getRegistration('/sw.js');
+  add(
+    'Service worker active',
+    Boolean(registration?.active),
+    registration?.active ? `Scope: ${registration.scope}` : 'No active worker registered on this device.'
+  );
 
-  let publicKey: string | null = null;
-  try {
-    ({ publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key'));
-    add('Server VAPID key', Boolean(publicKey), publicKey ? 'Server returned a public key.' : 'Server returned no key.');
-  } catch (err) {
-    add('Server VAPID key', false, err instanceof Error ? err.message : 'Request failed.');
-    return stages;
-  }
-  if (!publicKey) return stages;
-
-  let subscription: PushSubscription | null = null;
-  try {
-    subscription = await registration.pushManager.getSubscription();
-    if (subscription) {
-      const current = subscription.options?.applicationServerKey;
-      const matches = !current || sameKey(current, publicKey);
-      add(
-        'Browser subscription',
-        matches,
-        matches ? 'This device holds a subscription matching the server key.' : 'Subscription was made with a DIFFERENT VAPID key — it must be recreated.'
-      );
-      if (!matches) {
-        await subscription.unsubscribe();
-        subscription = null;
-      }
-    }
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-      add('Browser subscription', true, 'Created a new subscription.');
-    }
-  } catch (err) {
-    add('Browser subscription', false, err instanceof Error ? err.message : 'subscribe() was rejected.');
-    return stages;
-  }
+  const subscription = registration ? await registration.pushManager.getSubscription() : null;
+  add(
+    'Browser subscription',
+    Boolean(subscription),
+    subscription ? 'This device holds a push subscription.' : 'This device has no subscription yet.'
+  );
 
   try {
-    await api.post('/push/subscribe', subscription.toJSON());
-    add('Saved to server', true, 'The server accepted this subscription.');
-  } catch (err) {
-    add('Saved to server', false, err instanceof Error ? err.message : 'POST /push/subscribe failed.');
-    return stages;
-  }
-
-  try {
-    const { deviceCount } = await api.get<{ deviceCount: number }>('/push/diagnostics');
+    const { deviceCount, vapidConfigured } = await api.get<{ deviceCount: number; vapidConfigured: boolean }>(
+      '/push/diagnostics'
+    );
+    add('Server can send push', vapidConfigured, vapidConfigured ? 'VAPID keys are configured.' : 'Server has no VAPID keys.');
     add('Server sees this device', deviceCount > 0, `${deviceCount} device(s) registered on this account.`);
   } catch (err) {
-    add('Server sees this device', false, err instanceof Error ? err.message : 'Request failed.');
+    add('Server reachable', false, err instanceof Error ? err.message : 'Request failed.');
+  }
+
+  // The single most misread state: everything green except permission means
+  // push arrives and is then silently discarded, because a service worker
+  // cannot draw a notification the user hasn't allowed.
+  if (permission !== 'granted' && subscription) {
+    add(
+      'Why nothing appears',
+      false,
+      'Messages reach this device and are discarded undisplayed, because notifications are not allowed yet. The server correctly reports them as sent.'
+    );
   }
 
   return stages;
