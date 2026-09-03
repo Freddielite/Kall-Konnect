@@ -121,6 +121,30 @@ curl -X POST https://your-api.onrender.com/jobs/generate-notifications \
   -H "x-cron-secret: $CRON_SECRET"
 ```
 
+### Recommended: an every-few-minutes pinger instead of a daily job
+
+`GET /jobs/tick?secret=YOUR_CRON_SECRET` is the simplest way to run this, and
+the one to prefer. Point any free scheduler at it — cron-job.org is the usual
+choice — set to **every 5 minutes**, and you are done. No headers, no
+repository secrets, nothing to mistype but the URL itself.
+
+Every few minutes rather than once daily is deliberate, and it is the main
+reason this is more reliable than the GitHub Actions workflow:
+
+- It keeps the Render free instance awake, so the job isn't racing a 50-second
+  cold start.
+- A daily trigger has exactly one attempt. If it fails, that day has no
+  reminders and you find out from a user. A tick every 5 minutes means any
+  single failure is corrected within 5 minutes.
+- `generateNotifications()` is idempotent for the day, so the extra calls are
+  a cheap query returning `created: 0`. Only ticks that actually create
+  something are logged.
+
+The GitHub Actions workflow in `.github/workflows/daily-reminders.yml` still
+works and needs no external account, but it requires two repository secrets
+(`API_URL` and `CRON_SECRET`), and a missing one fails in ways that are not
+obvious from the run log.
+
 A 503 means `CRON_SECRET` isn't set on the server. The server also prints a
 warning at startup when `NODE_ENV=production` and no `CRON_SECRET` is set.
 
