@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
-import { isPushSupported, getPushStatus, enablePush, disablePush, sendTestPush, type PushStatus } from '@/lib/push';
+import { isPushSupported, getPushStatus, enablePush, disablePush, sendTestPush, ensureRegistered, type PushStatus } from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -113,7 +113,11 @@ export default function Settings() {
   // prompt or subscribe, so it is safe to call whenever.
   const refreshPushStatus = useCallback(async () => {
     if (!isPushSupported()) return setPushStatus('unsupported');
-    setPushStatus(await getPushStatus());
+    const status = await getPushStatus();
+    setPushStatus(status);
+    // Repairs the browser/server split described in ensureRegistered().
+    // Silent and prompt-free; only runs once permission is granted.
+    if (status === 'subscribed') await ensureRegistered().catch(() => {});
   }, []);
 
   useEffect(() => {

@@ -73,12 +73,16 @@ export async function sendPushToUser(userId, payload) {
       );
       return true;
     } catch (err) {
-      if (err?.statusCode === 404 || err?.statusCode === 410) {
+      // 403 joins 404/410 here. It means the push service refused our VAPID
+      // signature — almost always a subscription created under a previous key
+      // pair. Keeping the row retries a send that can never succeed; deleting
+      // it lets the client re-subscribe under the current key on next sync.
+      if (err?.statusCode === 404 || err?.statusCode === 410 || err?.statusCode === 403) {
         // The push service says this subscription is gone for good
         // (browser uninstalled, permission revoked, etc.) — clean it up
         // so we stop wasting a request on it every time.
         await query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]);
-        errors.push(`${err.statusCode} expired subscription (removed)`);
+        errors.push(`${err.statusCode} stale subscription (removed)`);
       } else {
         // Include the host: a 403 from every endpoint at once almost always
         // means the VAPID keys changed after devices subscribed, and each

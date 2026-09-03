@@ -96,12 +96,10 @@ pushRouter.post('/push/test', requireAuth, async (req, res) => {
     return res.status(502).json({
       ok: false,
       reason: 'all-sends-failed',
-      error:
-        'The push service rejected every send. If the VAPID keys were changed ' +
-        'after this device subscribed, it has to subscribe again.',
-      message:
-        'The push service rejected every send. If the VAPID keys were changed ' +
-        'after this device subscribed, it has to subscribe again.',
+      // Include the raw status codes. "Rejected" alone gives nobody anything
+      // to act on; "403" versus "410" points at completely different causes.
+      error: `The push service rejected every send (${result.errors?.join('; ') || 'no detail'}). Those subscriptions were removed — open Settings again to re-register this device.`,
+      message: `The push service rejected every send (${result.errors?.join('; ') || 'no detail'}). Those subscriptions were removed — open Settings again to re-register this device.`,
       ...result,
     });
   }

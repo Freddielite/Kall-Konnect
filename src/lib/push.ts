@@ -93,6 +93,60 @@ export async function enablePush(): Promise<void> {
   await api.post('/push/subscribe', subscription.toJSON());
 }
 
+/** Re-syncs this device's subscription to the server.
+ *
+ * CANNOT PROMPT, and so does not violate the one-subscribe-path rule above:
+ * it returns immediately unless permission is already granted, and once it is,
+ * neither getSubscription() nor subscribe() shows any UI.
+ *
+ * This is needed because the browser's view and the server's view drift apart
+ * silently. The server deletes a subscription the moment a push service
+ * reports it dead (404/410/403), which is correct — but the browser still
+ * holds that subscription object and happily reports itself subscribed, so
+ * the UI says "receiving reminders" while the server has no row to send to.
+ * Anything that changes the VAPID keys, or a round of stale rows being culled,
+ * lands you exactly there.
+ *
+ * Also repairs a key mismatch: a subscription created under an older VAPID
+ * public key is accepted locally forever while every send is rejected. */
+export async function ensureRegistered(): Promise<void> {
+  if (!isPushSupported()) return;
+  if (Notification.permission !== 'granted') return;
+
+  const { publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key');
+  if (!publicKey) return;
+
+  const reg = await navigator.serviceWorker.ready;
+  let subscription = await reg.pushManager.getSubscription();
+
+  if (subscription) {
+    const current = subscription.options?.applicationServerKey;
+    if (current && !sameKey(current, publicKey)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+  }
+
+  subscription =
+    subscription ??
+    (await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    }));
+
+  // Posted unconditionally. The endpoint upserts, so re-sending a row the
+  // server already has is harmless; not sending one it lacks is silent
+  // failure.
+  await api.post('/push/subscribe', subscription.toJSON());
+}
+
+function sameKey(current: ArrayBuffer, serverKeyBase64: string): boolean {
+  const expected = urlBase64ToUint8Array(serverKeyBase64) as Uint8Array;
+  const actual = new Uint8Array(current);
+  if (actual.length !== expected.length) return false;
+  return actual.every((byte, i) => byte === expected[i]);
+}
+
 export async function disablePush(): Promise<void> {
   if (!isPushSupported()) return;
   const reg = await navigator.serviceWorker.ready;
@@ -107,6 +161,10 @@ export async function disablePush(): Promise<void> {
  * permission — it cannot prompt, so it is safe to offer at any time. */
 export async function sendTestPush(): Promise<{ ok: boolean; message: string }> {
   try {
+    // Re-sync first. Otherwise a test can fail purely because the server's
+    // copy was culled, which reads as "push is broken" when the fix is one
+    // upsert away.
+    await ensureRegistered();
     const result = await api.post<{ message?: string }>('/push/test', {});
     return { ok: true, message: result.message ?? 'Test notification sent.' };
   } catch (err) {
