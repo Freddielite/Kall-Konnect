@@ -18,6 +18,8 @@ import {
   disablePushNotifications,
   sendTestPush,
   isDeviceRegistered,
+  diagnosePushSetup,
+  type DiagnosticStage,
 } from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
@@ -61,6 +63,8 @@ export default function Settings() {
   // They are different questions and used to be conflated.
   const [deviceReady, setDeviceReady] = useState<boolean | null>(null);
   const [registering, setRegistering] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticStage[] | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFadeOut, setSignOutFadeOut] = useState(false);
 
@@ -131,7 +135,12 @@ export default function Settings() {
   const handleRegisterDevice = async () => {
     setRegistering(true);
     try {
-      const result = await enablePushNotifications();
+      // enablePushNotifications used to be able to throw past this point,
+      // leaving the button spinning and the user with no explanation at all.
+      const result = await enablePushNotifications().catch((err: unknown) => ({
+        ok: false as const,
+        reason: err instanceof Error ? err.message : 'Setup failed unexpectedly.',
+      }));
       if (result.ok) {
         toast({ title: 'This device is set up for reminders' });
       } else {
@@ -144,6 +153,26 @@ export default function Settings() {
       await refreshDeviceStatus();
     } finally {
       setRegistering(false);
+    }
+  };
+
+  const handleDiagnose = async () => {
+    setDiagnosing(true);
+    setDiagnostics(null);
+    try {
+      const stages = await diagnosePushSetup();
+      setDiagnostics(stages);
+      await refreshDeviceStatus();
+    } catch (err) {
+      setDiagnostics([
+        {
+          name: 'Diagnostics',
+          ok: false,
+          detail: err instanceof Error ? err.message : 'The check itself failed.',
+        },
+      ]);
+    } finally {
+      setDiagnosing(false);
     }
   };
 
@@ -291,6 +320,33 @@ export default function Settings() {
                   >
                     {registering ? 'Setting up…' : 'Set up this device'}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl ml-2"
+                    onClick={handleDiagnose}
+                    disabled={diagnosing}
+                  >
+                    {diagnosing ? 'Checking…' : 'Why not?'}
+                  </Button>
+                </div>
+              )}
+
+              {diagnostics && (
+                <div className="rounded-xl border p-3 space-y-2">
+                  <p className="text-sm font-medium">Device check</p>
+                  {diagnostics.map((stage) => (
+                    <div key={stage.name} className="flex gap-2 text-sm">
+                      <span aria-hidden className={stage.ok ? 'text-green-500' : 'text-destructive'}>
+                        {stage.ok ? '✓' : '✕'}
+                      </span>
+                      <div>
+                        <p className="font-medium">{stage.name}</p>
+                        <p className="text-xs text-muted-foreground break-words">{stage.detail}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 

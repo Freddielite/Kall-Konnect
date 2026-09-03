@@ -58,10 +58,17 @@ export async function enablePushNotifications(): Promise<{ ok: boolean; reason?:
   const { publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key');
   if (!publicKey) return { ok: false, reason: 'Push is not configured on the server yet.' };
 
-  const registration = await navigator.serviceWorker.register('/sw.js');
-  await navigator.serviceWorker.ready;
-
   try {
+    // Inside the try: registration is the single most likely thing to fail on
+    // a real deployment (a host that serves index.html for /sw.js, a bad
+    // MIME type, an insecure origin), and it used to throw straight past the
+    // caller — no toast, no error, the screen simply did nothing.
+    const registration = await withTimeout(
+      registerServiceWorker(),
+      15_000,
+      'The service worker did not activate within 15 seconds.'
+    );
+
     const existing = await registration.pushManager.getSubscription();
     let subscription = existing;
 
@@ -93,6 +100,22 @@ export async function enablePushNotifications(): Promise<{ ok: boolean; reason?:
       reason: err instanceof Error ? err.message : 'The browser refused the push subscription.',
     };
   }
+}
+
+/** navigator.serviceWorker.ready never rejects — if no worker ever activates
+ * it simply hangs, which presents as a button that does nothing at all,
+ * forever. Every await on it needs a deadline. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
+async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
+  const registration = await navigator.serviceWorker.register('/sw.js');
+  await navigator.serviceWorker.ready;
+  return registration;
 }
 
 function sameKey(current: ArrayBuffer, serverKeyBase64: string): boolean {
@@ -127,8 +150,11 @@ export async function syncPushSubscription(): Promise<boolean> {
     const { publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key');
     if (!publicKey) return false;
 
-    const registration = await navigator.serviceWorker.register('/sw.js');
-    await navigator.serviceWorker.ready;
+    const registration = await withTimeout(
+      registerServiceWorker(),
+      15_000,
+      'The service worker did not activate within 15 seconds.'
+    );
 
     let subscription = await registration.pushManager.getSubscription();
     if (subscription) {
@@ -194,4 +220,123 @@ export async function disablePushNotifications(): Promise<void> {
   if (!subscription) return;
   await api.post('/push/unsubscribe', { endpoint: subscription.endpoint });
   await subscription.unsubscribe();
+}
+
+export interface DiagnosticStage {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/** Walks the push setup one stage at a time and reports where it breaks.
+ *
+ * Every stage below has, at some point, been the sole reason push "didn't
+ * work" — and from the outside they all look identical: a toggle that stays
+ * on and a phone that stays silent. Guessing between them remotely is
+ * expensive, so this just asks each question directly and shows the answer. */
+export async function diagnosePushSetup(): Promise<DiagnosticStage[]> {
+  const stages: DiagnosticStage[] = [];
+  const add = (name: string, ok: boolean, detail: string) => stages.push({ name, ok, detail });
+
+  if (!('serviceWorker' in navigator)) {
+    add('Browser support', false, 'This browser has no service worker support.');
+    return stages;
+  }
+  if (!window.isSecureContext) {
+    // http:// on a LAN IP is the usual cause. Push requires a secure origin;
+    // localhost is exempt, a bare IP is not.
+    add('Secure origin', false, `Page is not a secure context (${window.location.origin}). Push requires HTTPS.`);
+    return stages;
+  }
+  add('Browser support', true, 'Service workers and Push API are available.');
+
+  if (isIos() && !isStandalone()) {
+    add('Installed app', false, 'On iOS, push requires the app to be added to the Home Screen.');
+    return stages;
+  }
+
+  add('Permission', Notification.permission === 'granted', `Notification.permission is "${Notification.permission}".`);
+
+  // Fetch the worker script directly. A host that rewrites unknown paths to
+  // index.html returns HTML here, and the browser refuses to register a
+  // worker with a text/html MIME type — the error is easy to miss in a
+  // console you can't open on a phone.
+  try {
+    const res = await fetch('/sw.js', { cache: 'no-store' });
+    const type = res.headers.get('content-type') ?? 'unknown';
+    const isScript = res.ok && /javascript|ecmascript/i.test(type);
+    add(
+      'sw.js is served correctly',
+      isScript,
+      isScript
+        ? `HTTP ${res.status}, ${type}`
+        : `HTTP ${res.status}, content-type "${type}". The host is serving something other than JavaScript at /sw.js — usually index.html from a catch-all rewrite.`
+    );
+  } catch (err) {
+    add('sw.js is served correctly', false, err instanceof Error ? err.message : 'Could not fetch /sw.js.');
+  }
+
+  let registration: ServiceWorkerRegistration | null = null;
+  try {
+    registration = await withTimeout(registerServiceWorker(), 15_000, 'Timed out waiting for the worker to activate.');
+    add('Service worker active', true, `Scope: ${registration.scope}`);
+  } catch (err) {
+    add('Service worker active', false, err instanceof Error ? err.message : 'Registration failed.');
+    return stages;
+  }
+
+  let publicKey: string | null = null;
+  try {
+    ({ publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key'));
+    add('Server VAPID key', Boolean(publicKey), publicKey ? 'Server returned a public key.' : 'Server returned no key.');
+  } catch (err) {
+    add('Server VAPID key', false, err instanceof Error ? err.message : 'Request failed.');
+    return stages;
+  }
+  if (!publicKey) return stages;
+
+  let subscription: PushSubscription | null = null;
+  try {
+    subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      const current = subscription.options?.applicationServerKey;
+      const matches = !current || sameKey(current, publicKey);
+      add(
+        'Browser subscription',
+        matches,
+        matches ? 'This device holds a subscription matching the server key.' : 'Subscription was made with a DIFFERENT VAPID key — it must be recreated.'
+      );
+      if (!matches) {
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+    }
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      add('Browser subscription', true, 'Created a new subscription.');
+    }
+  } catch (err) {
+    add('Browser subscription', false, err instanceof Error ? err.message : 'subscribe() was rejected.');
+    return stages;
+  }
+
+  try {
+    await api.post('/push/subscribe', subscription.toJSON());
+    add('Saved to server', true, 'The server accepted this subscription.');
+  } catch (err) {
+    add('Saved to server', false, err instanceof Error ? err.message : 'POST /push/subscribe failed.');
+    return stages;
+  }
+
+  try {
+    const { deviceCount } = await api.get<{ deviceCount: number }>('/push/diagnostics');
+    add('Server sees this device', deviceCount > 0, `${deviceCount} device(s) registered on this account.`);
+  } catch (err) {
+    add('Server sees this device', false, err instanceof Error ? err.message : 'Request failed.');
+  }
+
+  return stages;
 }
