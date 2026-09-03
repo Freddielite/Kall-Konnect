@@ -102,6 +102,75 @@ function sameKey(current: ArrayBuffer, serverKeyBase64: string): boolean {
   return actual.every((byte, i) => byte === expected[i]);
 }
 
+/** Re-registers this device silently, without ever showing a prompt.
+ *
+ * Why this is needed: `notifications_enabled` defaults to true, so the
+ * Settings switch reads ON for a brand-new user who has never granted
+ * permission and never subscribed. enablePushNotifications() only runs from
+ * the switch's onChange, which never fires because nobody toggles a switch
+ * that already looks right — so the account sits in "reminders on, zero
+ * registered devices" forever and every push silently goes nowhere.
+ *
+ * The same gap opens whenever a subscription is lost for reasons the user
+ * never sees: clearing site data, a long-dormant install, or the server's
+ * VAPID keys being set after the user first turned reminders on.
+ *
+ * Only acts when permission is ALREADY granted, so it can run on every load
+ * without ambushing anyone with a permission dialog. Returns whether this
+ * device now has a working subscription. */
+export async function syncPushSubscription(): Promise<boolean> {
+  if (!isPushSupported()) return false;
+  if (Notification.permission !== 'granted') return false;
+  if (isIos() && !isStandalone()) return false;
+
+  try {
+    const { publicKey } = await api.get<{ publicKey: string | null }>('/push/vapid-public-key');
+    if (!publicKey) return false;
+
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      const current = subscription.options?.applicationServerKey;
+      if (current && !sameKey(current, publicKey)) {
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+    }
+
+    subscription =
+      subscription ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      }));
+
+    // Posted every time, not just on fresh subscribes: the browser can hold a
+    // valid subscription the server has no row for (different account, wiped
+    // database, failed POST last time). The endpoint upserts, so this is cheap.
+    await api.post('/push/subscribe', subscription.toJSON());
+    return true;
+  } catch (err) {
+    console.error('Push subscription sync failed:', err);
+    return false;
+  }
+}
+
+/** Whether this specific device is registered with the server — as opposed to
+ * isPushEnabled(), which only asks the browser. The two disagree exactly when
+ * something is broken, which is when it matters. */
+export async function isDeviceRegistered(): Promise<boolean> {
+  if (!isPushSupported()) return false;
+  try {
+    const { deviceCount } = await api.get<{ deviceCount: number }>('/push/diagnostics');
+    const local = await isPushEnabled();
+    return local && deviceCount > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Asks the server to push to this account right now. Returns the server's
  * explanation when it can't, which is the whole point — it distinguishes
  * "server has no keys" from "this device never subscribed" from "the push

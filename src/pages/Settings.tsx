@@ -13,7 +13,12 @@ import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
-import { enablePushNotifications, disablePushNotifications, sendTestPush } from '@/lib/push';
+import {
+  enablePushNotifications,
+  disablePushNotifications,
+  sendTestPush,
+  isDeviceRegistered,
+} from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -51,6 +56,11 @@ export default function Settings() {
   const [nameDraft, setNameDraft] = useState('');
   const [nameSaving, setNameSaving] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
+  // null = not checked yet. The switch above reflects an account-level
+  // preference; this reflects whether THIS phone is actually registered.
+  // They are different questions and used to be conflated.
+  const [deviceReady, setDeviceReady] = useState<boolean | null>(null);
+  const [registering, setRegistering] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutFadeOut, setSignOutFadeOut] = useState(false);
 
@@ -106,10 +116,42 @@ export default function Settings() {
     }
   };
 
+  const refreshDeviceStatus = useCallback(async () => {
+    setDeviceReady(await isDeviceRegistered());
+  }, []);
+
+  useEffect(() => {
+    if (!preferences.notifications_enabled) {
+      setDeviceReady(null);
+      return;
+    }
+    void refreshDeviceStatus();
+  }, [preferences.notifications_enabled, refreshDeviceStatus]);
+
+  const handleRegisterDevice = async () => {
+    setRegistering(true);
+    try {
+      const result = await enablePushNotifications();
+      if (result.ok) {
+        toast({ title: 'This device is set up for reminders' });
+      } else {
+        toast({
+          title: 'Could not set up this device',
+          description: result.reason,
+          variant: 'destructive',
+        });
+      }
+      await refreshDeviceStatus();
+    } finally {
+      setRegistering(false);
+    }
+  };
+
   const handleTestPush = async () => {
     setTestingPush(true);
     try {
       const result = await sendTestPush();
+      await refreshDeviceStatus();
       toast({
         title: result.ok ? 'Test notification sent' : "Test notification didn't send",
         description: result.message,
@@ -130,8 +172,10 @@ export default function Settings() {
           description: result.reason,
         });
       }
+      await refreshDeviceStatus();
     } else {
       await disablePushNotifications();
+      setDeviceReady(null);
     }
   };
 
@@ -228,11 +272,33 @@ export default function Settings() {
                 />
               </div>
               
-              {preferences.notifications_enabled && (
+              {preferences.notifications_enabled && deviceReady === false && (
+                <div className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3">
+                  <p className="text-sm font-medium mb-1">
+                    This phone isn't set up to receive reminders yet
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Reminders are on for your account, but this device has never
+                    been registered, so nothing can reach your lock screen. This
+                    takes one tap and a permission prompt.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={handleRegisterDevice}
+                    disabled={registering}
+                  >
+                    {registering ? 'Setting up…' : 'Set up this device'}
+                  </Button>
+                </div>
+              )}
+
+              {preferences.notifications_enabled && deviceReady && (
                 <div className="rounded-xl border border-dashed p-3">
                   <p className="text-sm text-muted-foreground mb-2">
-                    Not sure reminders are reaching your phone? Send one to this
-                    device right now.
+                    This device is registered. Send a reminder to it right now to
+                    make sure it arrives.
                   </p>
                   <Button
                     type="button"
