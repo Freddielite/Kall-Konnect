@@ -105,3 +105,41 @@ jobsRouter.get('/jobs/tick', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * Push diagnostics over HTTP, because Render's Shell is a paid feature and
+ * this needs to be runnable on the free tier.
+ *
+ *   GET /jobs/push-doctor?secret=CRON_SECRET
+ *   GET /jobs/push-doctor?secret=CRON_SECRET&send=you@example.com
+ *
+ * Gated by the same shared secret as the other job routes. Returns
+ * push-service hostnames and status codes only — never keys, endpoints or
+ * subscription secrets — so pasting the output somewhere is safe.
+ */
+jobsRouter.get('/jobs/push-doctor', async (req, res) => {
+  if (!env.cronSecret) {
+    return res.status(503).json({ error: 'CRON_SECRET is not set on this server.' });
+  }
+  if (!secretsMatch(req.get('x-cron-secret') || req.query.secret, env.cronSecret)) {
+    return res.status(401).json({ error: 'Invalid cron secret' });
+  }
+
+  try {
+    const { checkVapidConfig, listDevices, liveSend } = await import('../lib/pushDoctor.js');
+    const email = typeof req.query.send === 'string' ? req.query.send : null;
+
+    const payload = {
+      vapid: checkVapidConfig(),
+      devices: await listDevices(),
+      cronSecretConfigured: Boolean(env.cronSecret),
+    };
+    if (email) payload.liveSend = await liveSend(email);
+
+    // Pretty-printed: this gets read in a browser tab, not parsed by a client.
+    res.type('application/json').send(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    console.error('[jobs] push-doctor failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
