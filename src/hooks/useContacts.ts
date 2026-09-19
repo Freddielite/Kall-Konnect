@@ -14,7 +14,7 @@ interface ContactRow {
   snoozed_until: string | null; custom_template: string | null; template_tone: string | null;
   instagram_username: string | null; snapchat_username: string | null;
 }
-interface CallNoteRow { id: string; contact_id: string; content: string; duration: number | null; created_at: string; }
+interface CallNoteRow { id: string; contact_id: string; content: string; duration: number | null; called_at: string; created_at: string; }
 interface SpecialDateRow { id: string; contact_id: string; label: string; date: string; }
 
 const UNDO_WINDOW_MS = 5000;
@@ -54,7 +54,7 @@ async function fetchContactsData(): Promise<Contact[]> {
           .filter((note) => note.contact_id === contact.id)
           .map((note) => ({
             id: note.id,
-            date: new Date(note.created_at),
+            date: new Date(note.called_at),
             content: note.content,
             duration: note.duration ?? undefined,
           }));
@@ -263,10 +263,17 @@ export function useContacts() {
         contact_id: contactId,
         content: note.content,
         duration: note.duration,
+        called_at: note.date.toISOString(),
       });
 
-      // Update last_called timestamp
-      await updateContact(contactId, { lastCalled: new Date() });
+      // Bump last_called to this call's actual date - but never move it
+      // backwards. A manually-logged call (one made outside the app) can be
+      // backdated to before a call already on record, and that shouldn't
+      // make the contact look less recently contacted than it really is.
+      const contact = contacts.find((c) => c.id === contactId);
+      if (!contact?.lastCalled || note.date > contact.lastCalled) {
+        await updateContact(contactId, { lastCalled: note.date });
+      }
     } catch (error: unknown) {
       toast.error('Failed to add call note: ' + errorMessage(error));
     }

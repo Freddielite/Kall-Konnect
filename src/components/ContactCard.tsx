@@ -2,7 +2,7 @@ import { Contact } from '@/types/contact';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Phone, Instagram, Star, Clock, Sparkles, Cake, Gift, CalendarHeart, CalendarDays, MoreVertical, Pencil, Trash2, EyeOff } from 'lucide-react';
+import { Phone, Instagram, Star, Clock, Sparkles, Cake, Gift, CalendarHeart, CalendarDays, MoreVertical, Pencil, Trash2, EyeOff, PhoneIncoming } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const frequencyPhrase: Record<Contact['callFrequency'], string> = {
@@ -68,6 +68,8 @@ interface ContactCardProps {
   onDeleteContact?: (contactId: string) => void;
   /** Local-only "not now" - skips this suggestion for the rest of today without a server write. */
   onDismiss?: (contactId: string) => void;
+  /** Opens the "log a call made outside the app" flow (date/time picker -> note dialog). */
+  onLogCallOutside?: (contactId: string) => void;
   /** Fewer than a few logged calls - the suggested schedule is still a guess, not a learned rhythm. */
   isLowConfidence?: boolean;
   /** Most recent note matched a learned "needs following up on soon" signal. */
@@ -81,7 +83,7 @@ interface ContactCardProps {
   onUpdateFrequency?: (contactId: string, frequency: Contact['callFrequency']) => void;
 }
 
-export function ContactCard({ contact, occasion, conversationStarter, onCallMade, onToggleFavorite, onReschedule, onEditTemplate, onEditContact, onDeleteContact, onDismiss, isLowConfidence, followUpFlagged, bestTime, typicalCallLength, suggestedFrequency, onUpdateFrequency }: ContactCardProps) {
+export function ContactCard({ contact, occasion, conversationStarter, onCallMade, onToggleFavorite, onReschedule, onEditTemplate, onEditContact, onDeleteContact, onDismiss, onLogCallOutside, isLowConfidence, followUpFlagged, bestTime, typicalCallLength, suggestedFrequency, onUpdateFrequency }: ContactCardProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const OccasionIcon = occasion?.type === 'birthday' ? Gift : occasion?.type === 'anniversary' ? CalendarHeart : CalendarDays;
   const occasionWhen = occasion
@@ -201,7 +203,7 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
               <Star className={`h-5 w-5 ${contact.isFavorite ? 'fill-accent text-accent' : 'text-muted-foreground'}`} />
             </Button>
           )}
-          {(onEditContact || onDeleteContact || onDismiss) && (
+          {(onEditContact || onDeleteContact || onDismiss || onLogCallOutside) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More options">
@@ -209,6 +211,13 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                {onLogCallOutside && (
+                  <DropdownMenuItem onClick={() => onLogCallOutside(contact.id)} className="gap-2">
+                    <PhoneIncoming className="h-4 w-4" />
+                    Log a call
+                  </DropdownMenuItem>
+                )}
+                {onLogCallOutside && (onDismiss || onEditContact || onDeleteContact) && <DropdownMenuSeparator />}
                 {onDismiss && (
                   <DropdownMenuItem onClick={() => onDismiss(contact.id)} className="gap-2">
                     <EyeOff className="h-4 w-4" />

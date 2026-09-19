@@ -16,8 +16,11 @@ import { computeCallStreak } from '@/lib/streaks';
 import { isQuickReturn } from '@/lib/callOutcome';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DateTimePicker } from '@/components/DateTimePicker';
 import { Contact, TemplateTone } from '@/types/contact';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { NotificationsBell } from '@/components/NotificationsBell';
@@ -43,6 +46,16 @@ export default function Dashboard() {
   // in whole minutes - fed straight into the existing (previously unused)
   // CallNote.duration field when the note is saved.
   const [callDurationMinutes, setCallDurationMinutes] = useState<number | null>(null);
+  // "Log a call" (⋮ menu) - for a call made outside the app (native dialer,
+  // WhatsApp directly, etc.) that never triggers the Page Visibility flow
+  // above. logCallDialog holds the date/time picker step; once confirmed,
+  // manualCallDate carries the chosen moment into the same note dialog,
+  // and manualDurationInput replaces the auto-measured duration (there's
+  // no time-away to measure for a call the app never saw happen).
+  const [logCallDialog, setLogCallDialog] = useState<{ open: boolean; contactId: string } | null>(null);
+  const [logCallPickerValue, setLogCallPickerValue] = useState<Date>(new Date());
+  const [manualCallDate, setManualCallDate] = useState<Date | null>(null);
+  const [manualDurationInput, setManualDurationInput] = useState('');
   const [rescheduleDialog, setRescheduleDialog] = useState<{ open: boolean; contactId: string | null }>({ open: false, contactId: null });
   const [templateDialog, setTemplateDialog] = useState<{ open: boolean; contactId: string | null }>({ open: false, contactId: null });
   // "Not now" on a suggestion - local-only, resurfaces tomorrow. See lib/localDismiss.
@@ -59,7 +72,7 @@ export default function Dashboard() {
     onRefresh: handleRefresh,
     // A dialog scrolls its own content; a downward drag inside one must not
     // be read as a pull on the page behind it.
-    disabled: Boolean(noteDialog?.open) || addDialogOpen || rescheduleDialog.open || templateDialog.open,
+    disabled: Boolean(noteDialog?.open) || Boolean(logCallDialog?.open) || addDialogOpen || rescheduleDialog.open || templateDialog.open,
   });
 
   const handleUpdateFrequency = (contactId: string, frequency: Contact['callFrequency']) => {
@@ -95,6 +108,23 @@ export default function Dashboard() {
   const handleLogCallManually = (contactId: string, platform: string) => {
     setCallDurationMinutes(null);
     setNoteDialog({ open: true, contactId, platform });
+  };
+
+  // ⋮ menu "Log a call" - opens the date/time picker step for a call made
+  // outside the app. Confirming it (handleConfirmLogCallTime) is what
+  // actually opens the note dialog.
+  const handleLogCallOutside = (contactId: string) => {
+    setLogCallPickerValue(new Date());
+    setLogCallDialog({ open: true, contactId });
+  };
+
+  const handleConfirmLogCallTime = () => {
+    if (!logCallDialog) return;
+    setManualCallDate(logCallPickerValue);
+    setManualDurationInput('');
+    setCallDurationMinutes(null);
+    setNoteDialog({ open: true, contactId: logCallDialog.contactId, platform: 'manual' });
+    setLogCallDialog(null);
   };
 
   // Detects the user actually returning to the app after a real call
@@ -189,10 +219,11 @@ export default function Dashboard() {
   const saveNote = () => {
     const contact = contacts.find(c => c.id === noteDialog?.contactId);
     if (contact && note.trim() && noteDialog?.contactId) {
+      const manualDuration = manualDurationInput.trim() ? Math.max(0, parseInt(manualDurationInput, 10)) : undefined;
       addCallNote(noteDialog.contactId, {
-        date: new Date(),
+        date: manualCallDate ?? new Date(),
         content: note,
-        duration: callDurationMinutes ?? undefined,
+        duration: manualCallDate ? manualDuration : (callDurationMinutes ?? undefined),
       });
       toast({
         title: "Note saved! 📝",
@@ -201,6 +232,8 @@ export default function Dashboard() {
     }
     setNote('');
     setCallDurationMinutes(null);
+    setManualCallDate(null);
+    setManualDurationInput('');
     setNoteDialog(null);
   };
 
@@ -286,6 +319,7 @@ export default function Dashboard() {
                   onToggleFavorite={handleToggleFavorite}
                   onReschedule={(id) => setRescheduleDialog({ open: true, contactId: id })}
                   onEditTemplate={(id) => setTemplateDialog({ open: true, contactId: id })}
+                  onLogCallOutside={handleLogCallOutside}
                 />
               </Card>
             ))}
@@ -321,6 +355,7 @@ export default function Dashboard() {
               onReschedule={(id) => setRescheduleDialog({ open: true, contactId: id })}
               onEditTemplate={(id) => setTemplateDialog({ open: true, contactId: id })}
               onDismiss={handleDismissSuggestion}
+              onLogCallOutside={handleLogCallOutside}
               isLowConfidence={todayContactMeta?.isLowConfidence}
               followUpFlagged={todayContactMeta?.followUpFlagged}
               bestTime={todayContactMeta?.bestTime}
@@ -393,7 +428,17 @@ export default function Dashboard() {
       </div>
 
       {/* Post-Call Notes Dialog */}
-      <Dialog open={noteDialog?.open || false} onOpenChange={(open) => { if (!open) { setNoteDialog(null); setCallDurationMinutes(null); } }}>
+      <Dialog
+        open={noteDialog?.open || false}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNoteDialog(null);
+            setCallDurationMinutes(null);
+            setManualCallDate(null);
+            setManualDurationInput('');
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl">How did the call go?</DialogTitle>
@@ -402,7 +447,27 @@ export default function Dashboard() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            {callDurationMinutes != null && (
+            {manualCallDate ? (
+              <>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Logging a call from {manualCallDate.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="manual-call-duration" className="text-xs text-muted-foreground">
+                    How long was the call, in minutes? (optional)
+                  </Label>
+                  <Input
+                    id="manual-call-duration"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    placeholder="e.g. 12"
+                    value={manualDurationInput}
+                    onChange={(e) => setManualDurationInput(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : callDurationMinutes != null && (
               <p className="text-xs text-muted-foreground -mt-2">
                 Looks like that call ran about {callDurationMinutes} min.
               </p>
@@ -421,7 +486,7 @@ export default function Dashboard() {
             <div className="flex gap-3">
               <Button 
                 variant="outline" 
-                onClick={() => { setNoteDialog(null); setCallDurationMinutes(null); }} 
+                onClick={() => { setNoteDialog(null); setCallDurationMinutes(null); setManualCallDate(null); setManualDurationInput(''); }} 
                 className="flex-1 rounded-full"
               >
                 Skip
@@ -434,6 +499,27 @@ export default function Dashboard() {
                 Save Note
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Log a Call (outside the app) - date/time picker step, ahead of the note dialog above */}
+      <Dialog open={logCallDialog?.open || false} onOpenChange={(open) => { if (!open) setLogCallDialog(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl">When did you call?</DialogTitle>
+            <DialogDescription>
+              Log a call you made outside the app - phone, WhatsApp, etc.
+            </DialogDescription>
+          </DialogHeader>
+          <DateTimePicker value={logCallPickerValue} onChange={setLogCallPickerValue} />
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" onClick={() => setLogCallDialog(null)} className="flex-1 rounded-full">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmLogCallTime} className="flex-1 rounded-full">
+              Continue
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

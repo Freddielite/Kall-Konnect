@@ -93,7 +93,7 @@ contactsRouter.get('/call-notes', async (req, res) => {
 });
 
 contactsRouter.post('/call-notes', async (req, res) => {
-  const { contact_id, content, duration } = req.body ?? {};
+  const { contact_id, content, duration, called_at } = req.body ?? {};
   if (!contact_id || !content) return res.status(400).json({ error: 'contact_id and content are required' });
 
   try {
@@ -101,10 +101,14 @@ contactsRouter.post('/call-notes', async (req, res) => {
     const owns = await query('SELECT 1 FROM contacts WHERE id = $1 AND user_id = $2', [contact_id, req.userId]);
     if (owns.rowCount === 0) return res.status(404).json({ error: 'Contact not found' });
 
+    // called_at defaults to now() (regular in-app calls) but can be
+    // backdated by the client for a call logged after the fact ("Log a
+    // call" - a call made outside the app).
     const { rows } = await query(
-      `INSERT INTO call_notes (contact_id, user_id, content, duration)
-       VALUES ($1, $2, $3, $4) RETURNING id, contact_id, content, duration, created_at`,
-      [contact_id, req.userId, content, duration ?? null]
+      `INSERT INTO call_notes (contact_id, user_id, content, duration, called_at)
+       VALUES ($1, $2, $3, $4, COALESCE($5, now()))
+       RETURNING id, contact_id, content, duration, called_at, created_at`,
+      [contact_id, req.userId, content, duration ?? null, called_at ?? null]
     );
     broadcastToUser(req.userId, { type: 'contacts' });
     res.status(201).json(rows[0]);
