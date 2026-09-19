@@ -1,5 +1,7 @@
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface DateTimePickerProps {
   value: Date;
@@ -8,14 +10,12 @@ interface DateTimePickerProps {
   maxDate?: Date;
 }
 
-const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
-const MINUTES_5 = Array.from({ length: 12 }, (_, i) => i * 5); // 0,5,...,55
-
 /**
- * Custom date + time picker (calendar day grid + hour/minute/AM-PM selects)
- * built from the app's own Calendar/Select primitives - deliberately not a
- * native <input type="datetime-local">, which renders as the OS's own
- * picker UI rather than something styled to match the app.
+ * Custom date + time picker: a calendar day grid plus hour/minute steppers
+ * and an AM/PM toggle, all plain buttons - deliberately not a native
+ * <input type="datetime-local"> (the OS's own picker UI) and not a Radix
+ * Select either, which rendered blank and didn't respond to taps once
+ * nested inside this app's animated Dialog.
  */
 export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps) {
   const max = maxDate ?? new Date();
@@ -23,8 +23,8 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
   const hour24 = value.getHours();
   const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
   const period: 'AM' | 'PM' = hour24 < 12 ? 'AM' : 'PM';
-  // Snaps the current minute to the nearest option on the 5-minute select.
-  const minuteOption = Math.round(value.getMinutes() / 5) * 5 % 60;
+  // Snaps the current minute to the nearest 5-minute step.
+  const minuteStep = Math.round(value.getMinutes() / 5) * 5 % 60;
 
   // Never lets the composed date/time land after `max`.
   const clamp = (d: Date) => (d > max ? new Date(max) : d);
@@ -35,15 +35,17 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
     onChange(clamp(next));
   };
 
-  const applyHour12 = (h12: number) => {
+  const shiftHour = (delta: 1 | -1) => {
     const next = new Date(value);
-    next.setHours((h12 % 12) + (period === 'PM' ? 12 : 0));
+    // 12-hour wheel: 12 -> 1 -> ... -> 11 -> 12, independent of AM/PM.
+    const nextHour12 = ((hour12 - 1 + delta + 12) % 12) + 1;
+    next.setHours((nextHour12 % 12) + (period === 'PM' ? 12 : 0));
     onChange(clamp(next));
   };
 
-  const applyMinute = (m: number) => {
+  const shiftMinute = (delta: 1 | -1) => {
     const next = new Date(value);
-    next.setMinutes(m, 0, 0);
+    next.setMinutes(((minuteStep + delta * 5 + 60) % 60), 0, 0);
     onChange(clamp(next));
   };
 
@@ -53,8 +55,11 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
     onChange(clamp(next));
   };
 
+  const stepperColumnClass = 'flex flex-col items-center gap-1';
+  const stepperButtonClass = 'h-7 w-9 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors';
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex justify-center">
         <Calendar
           mode="single"
@@ -64,37 +69,46 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
           className="rounded-md border"
         />
       </div>
-      <div className="flex items-center justify-center gap-2">
-        <Select value={String(hour12)} onValueChange={(v) => applyHour12(Number(v))}>
-          <SelectTrigger className="w-[72px]" aria-label="Hour">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {HOURS_12.map((h) => (
-              <SelectItem key={h} value={String(h)}>{h}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="text-muted-foreground">:</span>
-        <Select value={String(minuteOption)} onValueChange={(v) => applyMinute(Number(v))}>
-          <SelectTrigger className="w-[72px]" aria-label="Minute">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MINUTES_5.map((m) => (
-              <SelectItem key={m} value={String(m)}>{String(m).padStart(2, '0')}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={period} onValueChange={(v) => applyPeriod(v as 'AM' | 'PM')}>
-          <SelectTrigger className="w-[72px]" aria-label="AM/PM">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="AM">AM</SelectItem>
-            <SelectItem value="PM">PM</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="flex items-center justify-center gap-3">
+        <div className={stepperColumnClass}>
+          <button type="button" aria-label="Next hour" className={stepperButtonClass} onClick={() => shiftHour(1)}>
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <div className="text-2xl font-semibold tabular-nums w-10 text-center">{hour12}</div>
+          <button type="button" aria-label="Previous hour" className={stepperButtonClass} onClick={() => shiftHour(-1)}>
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+        <span className="text-2xl font-semibold text-muted-foreground pb-6">:</span>
+        <div className={stepperColumnClass}>
+          <button type="button" aria-label="Next minute" className={stepperButtonClass} onClick={() => shiftMinute(1)}>
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <div className="text-2xl font-semibold tabular-nums w-10 text-center">{String(minuteStep).padStart(2, '0')}</div>
+          <button type="button" aria-label="Previous minute" className={stepperButtonClass} onClick={() => shiftMinute(-1)}>
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-col gap-1 pl-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={period === 'AM' ? 'default' : 'outline'}
+            className={cn('h-7 px-3 rounded-md')}
+            onClick={() => applyPeriod('AM')}
+          >
+            AM
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={period === 'PM' ? 'default' : 'outline'}
+            className={cn('h-7 px-3 rounded-md')}
+            onClick={() => applyPeriod('PM')}
+          >
+            PM
+          </Button>
+        </div>
       </div>
     </div>
   );
