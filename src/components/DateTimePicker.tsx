@@ -35,18 +35,37 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
     onChange(clamp(next));
   };
 
-  const shiftHour = (delta: 1 | -1) => {
+  const candidateHour = (delta: 1 | -1) => {
     const next = new Date(value);
     // 12-hour wheel: 12 -> 1 -> ... -> 11 -> 12, independent of AM/PM.
     const nextHour12 = ((hour12 - 1 + delta + 12) % 12) + 1;
     next.setHours((nextHour12 % 12) + (period === 'PM' ? 12 : 0));
-    onChange(clamp(next));
+    return next;
+  };
+
+  const candidateMinute = (delta: 1 | -1) => {
+    const next = new Date(value);
+    next.setMinutes(((minuteStep + delta * 5 + 60) % 60), 0, 0);
+    return next;
+  };
+
+  // Rather than clamping a disallowed step back down to `max` (which, right
+  // at the current moment, looks like the button did nothing at all), the
+  // up-steppers disable themselves once stepping would land in the future -
+  // see hourUpDisabled/minuteUpDisabled below, used on the buttons.
+  const hourUpDisabled = candidateHour(1) > max;
+  const minuteUpDisabled = candidateMinute(1) > max;
+
+  const shiftHour = (delta: 1 | -1) => {
+    const next = candidateHour(delta);
+    if (next > max) return;
+    onChange(next);
   };
 
   const shiftMinute = (delta: 1 | -1) => {
-    const next = new Date(value);
-    next.setMinutes(((minuteStep + delta * 5 + 60) % 60), 0, 0);
-    onChange(clamp(next));
+    const next = candidateMinute(delta);
+    if (next > max) return;
+    onChange(next);
   };
 
   const applyPeriod = (p: 'AM' | 'PM') => {
@@ -71,7 +90,13 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
       </div>
       <div className="flex items-center justify-center gap-3">
         <div className={stepperColumnClass}>
-          <button type="button" aria-label="Next hour" className={stepperButtonClass} onClick={() => shiftHour(1)}>
+          <button
+            type="button"
+            aria-label="Next hour"
+            className={cn(stepperButtonClass, 'disabled:opacity-30 disabled:pointer-events-none')}
+            onClick={() => shiftHour(1)}
+            disabled={hourUpDisabled}
+          >
             <ChevronUp className="h-4 w-4" />
           </button>
           <div className="text-2xl font-semibold tabular-nums w-10 text-center">{hour12}</div>
@@ -81,7 +106,13 @@ export function DateTimePicker({ value, onChange, maxDate }: DateTimePickerProps
         </div>
         <span className="text-2xl font-semibold text-muted-foreground pb-6">:</span>
         <div className={stepperColumnClass}>
-          <button type="button" aria-label="Next minute" className={stepperButtonClass} onClick={() => shiftMinute(1)}>
+          <button
+            type="button"
+            aria-label="Next minute"
+            className={cn(stepperButtonClass, 'disabled:opacity-30 disabled:pointer-events-none')}
+            onClick={() => shiftMinute(1)}
+            disabled={minuteUpDisabled}
+          >
             <ChevronUp className="h-4 w-4" />
           </button>
           <div className="text-2xl font-semibold tabular-nums w-10 text-center">{String(minuteStep).padStart(2, '0')}</div>
