@@ -14,6 +14,7 @@ import { pushRouter } from './routes/push.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { attachWebSocketServer } from './ws.js';
 import { startCronJobs } from './jobs/cron.js';
+import { runMigrations } from './migrate.js';
 import { jobsRouter } from './routes/jobs.js';
 import { checkCookieConfig, SAME_SITE } from './lib/cookies.js';
 
@@ -104,6 +105,21 @@ app.use((err, req, res, next) => {
 });
 
 const server = http.createServer(app);
+
+// Applies any pending migrations (server/migrations/*.sql) before the server
+// starts accepting traffic - so a deploy is just "push the code", with no
+// separate manual `npm run migrate` step against the live database.
+// Already-applied migrations are skipped, so this is a no-op on a normal
+// restart. Fails loudly and refuses to start rather than run against a
+// schema the code doesn't match - that shows up clearly in the deploy logs
+// instead of surfacing as a confusing runtime error later.
+try {
+  await runMigrations();
+} catch (err) {
+  console.error('[migrate] failed - refusing to start:', err);
+  process.exit(1);
+}
+
 attachWebSocketServer(server);
 startCronJobs();
 
