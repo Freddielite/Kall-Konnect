@@ -70,6 +70,8 @@ interface ContactCardProps {
   onDismiss?: (contactId: string) => void;
   /** Opens the "log a call made outside the app" flow (date/time picker -> note dialog). */
   onLogCallOutside?: (contactId: string) => void;
+  /** Navigates to the contact's detail page. Wraps just the avatar/name/badges area, not the action buttons. */
+  onOpenDetail?: (contactId: string) => void;
   /** Fewer than a few logged calls - the suggested schedule is still a guess, not a learned rhythm. */
   isLowConfidence?: boolean;
   /** Most recent note matched a learned "needs following up on soon" signal. */
@@ -83,7 +85,7 @@ interface ContactCardProps {
   onUpdateFrequency?: (contactId: string, frequency: Contact['callFrequency']) => void;
 }
 
-export function ContactCard({ contact, occasion, conversationStarter, onCallMade, onToggleFavorite, onReschedule, onEditTemplate, onEditContact, onDeleteContact, onDismiss, onLogCallOutside, isLowConfidence, followUpFlagged, bestTime, typicalCallLength, suggestedFrequency, onUpdateFrequency }: ContactCardProps) {
+export function ContactCard({ contact, occasion, conversationStarter, onCallMade, onToggleFavorite, onReschedule, onEditTemplate, onEditContact, onDeleteContact, onDismiss, onLogCallOutside, onOpenDetail, isLowConfidence, followUpFlagged, bestTime, typicalCallLength, suggestedFrequency, onUpdateFrequency }: ContactCardProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const OccasionIcon = occasion?.type === 'birthday' ? Gift : occasion?.type === 'anniversary' ? CalendarHeart : CalendarDays;
   const occasionWhen = occasion
@@ -156,39 +158,47 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
   return (
     <Card className="p-5 shadow-soft hover:shadow-warm transition-smooth border-2">
       <div className="flex items-start gap-4 mb-4">
-        <Avatar className="h-14 w-14 border-2 border-primary/20">
-          <AvatarFallback className="gradient-warm text-white font-semibold text-lg">
-            {getInitials(contact.name)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-lg font-semibold text-foreground">{contact.name}</h3>
-            {contact.isFavorite && (
-              <Star className="h-4 w-4 fill-accent text-accent" />
-            )}
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Badge className={cn("text-xs capitalize", relationshipBadgeClass(contact.relationship))}>
-              {contact.relationship}
-            </Badge>
-            {daysSinceLastCall !== null && (
-              <Badge variant="outline" className="text-xs">
-                {daysSinceLastCall === 0 ? 'Today' : `${daysSinceLastCall}d ago`}
+        <div
+          className={cn("flex items-start gap-4 flex-1 min-w-0", onOpenDetail && "cursor-pointer")}
+          role={onOpenDetail ? "button" : undefined}
+          tabIndex={onOpenDetail ? 0 : undefined}
+          onClick={onOpenDetail ? () => onOpenDetail(contact.id) : undefined}
+          onKeyDown={onOpenDetail ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(contact.id); } } : undefined}
+        >
+          <Avatar className="h-14 w-14 border-2 border-primary/20">
+            <AvatarFallback className="gradient-warm text-white font-semibold text-lg">
+              {getInitials(contact.name)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-lg font-semibold text-foreground">{contact.name}</h3>
+              {contact.isFavorite && (
+                <Star className="h-4 w-4 fill-accent text-accent" />
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Badge className={cn("text-xs capitalize", relationshipBadgeClass(contact.relationship))}>
+                {contact.relationship}
               </Badge>
-            )}
-            {occasion && (
-              <Badge className="text-xs gap-1 bg-accent text-accent-foreground">
-                <OccasionIcon className="h-3 w-3" />
-                {occasion.label} {occasionWhen}
-              </Badge>
-            )}
-            {!occasion && isUpcomingBirthday() && (
-              <Badge variant="default" className="text-xs gap-1 bg-accent">
-                <Cake className="h-3 w-3" />
-                Birthday Soon!
-              </Badge>
-            )}
+              {daysSinceLastCall !== null && (
+                <Badge variant="outline" className="text-xs">
+                  {daysSinceLastCall === 0 ? 'Today' : `${daysSinceLastCall}d ago`}
+                </Badge>
+              )}
+              {occasion && (
+                <Badge className="text-xs gap-1 bg-accent text-accent-foreground">
+                  <OccasionIcon className="h-3 w-3" />
+                  {occasion.label} {occasionWhen}
+                </Badge>
+              )}
+              {!occasion && isUpcomingBirthday() && (
+                <Badge variant="default" className="text-xs gap-1 bg-accent">
+                  <Cake className="h-3 w-3" />
+                  Birthday Soon!
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1">

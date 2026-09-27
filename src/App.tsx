@@ -9,6 +9,7 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import Dashboard from "./pages/Dashboard";
 import Contacts from "./pages/Contacts";
+import ContactDetail from "./pages/ContactDetail";
 import Stats from "./pages/Stats";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
@@ -112,6 +113,14 @@ function AnimatedRoutes({ session }: { session: unknown }) {
             element={
               <ProtectedRoute>
                 <Contacts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/contacts/:id"
+            element={
+              <ProtectedRoute>
+                <ContactDetail />
               </ProtectedRoute>
             }
           />

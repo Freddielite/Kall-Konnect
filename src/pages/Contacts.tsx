@@ -5,10 +5,12 @@ import { ImportContactsDialog } from '@/components/ImportContactsDialog';
 import { RescheduleDialog } from '@/components/RescheduleDialog';
 import { TemplateDialog } from '@/components/TemplateDialog';
 import { useContacts } from '@/hooks/useContacts';
+import { useLogCallFlow } from '@/hooks/useLogCallFlow';
 import { Users, Search, Plus, Star, RefreshCw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Contact, TemplateTone } from '@/types/contact';
 import { useToast } from '@/hooks/use-toast';
@@ -31,8 +33,10 @@ const relationshipBadgeClass = (relationship: string) => {
 };
 
 export default function Contacts() {
+  const navigate = useNavigate();
   const { toast } = useToast();
-  const { contacts, loading, addContact, updateContact, deleteContact, refreshContacts } = useContacts();
+  const { contacts, loading, addContact, updateContact, deleteContact, refreshContacts, addCallNote } = useContacts();
+  const logCall = useLogCallFlow({ contacts, addCallNote });
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRelationship, setFilterRelationship] = useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
@@ -47,7 +51,7 @@ export default function Contacts() {
     toast({ title: 'Contacts refreshed' });
   }, [refreshContacts, toast]);
 
-  const { refreshing, pullOffset, refresh, handlers } = usePullToRefresh({ onRefresh: handleRefresh });
+  const { refreshing, pullOffset, refresh, handlers } = usePullToRefresh({ onRefresh: handleRefresh, disabled: logCall.isOpen });
 
   const filteredContacts = contacts.filter(contact => {
     const matchesSearch = contact.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -229,6 +233,8 @@ export default function Contacts() {
                     onEditTemplate={(id) => setTemplateDialog({ open: true, contactId: id })}
                     onEditContact={(id) => setEditContactId(id)}
                     onDeleteContact={(id) => deleteContact(id)}
+                    onLogCallOutside={logCall.openLogCall}
+                    onOpenDetail={(id) => navigate(`/contacts/${id}`)}
                   />
                 </motion.div>
               ))
@@ -279,6 +285,8 @@ export default function Contacts() {
         onSaveTemplate={handleSaveTemplate}
         onSaveTone={handleSaveTone}
       />
+      {/* Log a Call (outside the app) */}
+      {logCall.dialogs}
     </motion.div>
   );
 }

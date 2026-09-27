@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { useCallback } from 'react';
 import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
+import { getStatsEncouragement, getFunFact } from '@/lib/dailyMessages';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -220,8 +221,7 @@ export default function Stats() {
                 <h3 className="text-lg font-semibold text-foreground">You're Amazing!</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                You've made <span className="font-bold text-accent">{callsThisWeek}</span> calls this week.
-                Every conversation strengthens your relationships. Keep up the wonderful work! 💙
+                {getStatsEncouragement(callsThisWeek)}
               </p>
             </Card>
 
@@ -266,8 +266,7 @@ export default function Stats() {
             <Card className="p-6 shadow-soft border-2 bg-secondary/5 border-secondary/20">
               <h3 className="text-lg font-semibold text-foreground mb-2">Did you know?</h3>
               <p className="text-sm text-muted-foreground">
-                Regular phone conversations have been shown to reduce stress and strengthen emotional bonds.
-                You're not just making calls—you're building a healthier, happier life! 🌟
+                {getFunFact()}
               </p>
             </Card>
           </>
