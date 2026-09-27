@@ -6,7 +6,7 @@ interface SplashScreenProps {
   fadeOut?: boolean;
 }
 
-const SPLASH_TEXT = 'kall konnect';
+const SPLASH_TEXT = 'Kall Konnect';
 // Finishes typing in ~540ms (12 chars * 45ms) - comfortably inside the
 // shortest fadeOut delay any caller uses (Auth.tsx starts fading at 700ms),
 // so the cursor is left blinking on the finished word rather than getting
