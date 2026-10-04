@@ -99,19 +99,30 @@ export const env = {
   // keys are set at all.
   vapidSubject: clean(process.env.VAPID_SUBJECT) ?? 'mailto:admin@example.com',
 
-  // SendGrid (transactional email: password reset, email verification,
-  // calendar-reminder invites). Free tier: 100 emails/day, no domain
-  // needed — just verify one sender email at
-  // https://app.sendgrid.com/settings/sender_auth/senders (Settings >
-  // Sender Authentication > Single Sender Verification). EMAIL_FROM below
-  // MUST exactly match that verified address, or sends will fail.
-  // Leave SENDGRID_API_KEY unset in dev and these features log the email
-  // content to the console instead of sending, so nothing blocks on it.
-  // The API key MUST have the "Mail Send" scope. A Restricted Access key
-  // created without it authenticates fine and then 403s every single send —
-  // the most common cause of "my key is correct but nothing arrives".
+  // SendGrid (transactional email: calendar-reminder invites only — these
+  // carry an .ics attachment, which Wynmail's v1 API below doesn't support).
+  // Free tier: 100 emails/day, no domain needed — just verify one sender
+  // email at https://app.sendgrid.com/settings/sender_auth/senders
+  // (Settings > Sender Authentication > Single Sender Verification).
+  // EMAIL_FROM below MUST exactly match that verified address, or sends
+  // will fail. Leave SENDGRID_API_KEY unset in dev and this feature logs
+  // the email content to the console instead of sending, so nothing blocks
+  // on it. The API key MUST have the "Mail Send" scope. A Restricted
+  // Access key created without it authenticates fine and then 403s every
+  // single send — the most common cause of "my key is correct but nothing
+  // arrives".
   sendgridApiKey: clean(process.env.SENDGRID_API_KEY) ?? '',
   emailFrom: clean(process.env.EMAIL_FROM) ?? 'Kall Konnect <you@example.com>',
+
+  // Wynmail (transactional email: password reset, email verification).
+  // Wyntek's own in-house sender — see /v1/emails in that project. Create
+  // an API key on Wynmail's API page for the workspace sending this app's
+  // mail (shown once, starts with "wm_"); the from-address is whatever
+  // that workspace has configured, not set here. Leave
+  // WYNMAIL_API_KEY unset in dev and these two features log the email
+  // content to the console instead of sending, same as SendGrid above.
+  wynmailApiUrl: clean(process.env.WYNMAIL_API_URL) ?? '',
+  wynmailApiKey: clean(process.env.WYNMAIL_API_KEY) ?? '',
 
   // Auth cookies. Secure requires HTTPS — leave false for LAN/http dev,
   // set true in production (COOKIE_SECURE=true).

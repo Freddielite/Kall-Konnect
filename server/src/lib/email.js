@@ -1,4 +1,5 @@
 import { env } from '../env.js';
+import { sendTransactionalEmail } from './wynmail.js';
 
 const PLACEHOLDER_FROM = /@example\.com$/i;
 
@@ -231,7 +232,7 @@ export async function sendEmail({ to, subject, html, attachments }) {
 }
 
 export function sendPasswordResetEmail(to, resetUrl) {
-  return sendEmail({
+  return sendTransactionalEmail({
     to,
     subject: 'Reset your Kall Konnect password',
     html: `
@@ -243,7 +244,7 @@ export function sendPasswordResetEmail(to, resetUrl) {
 }
 
 export function sendVerificationEmail(to, verifyUrl) {
-  return sendEmail({
+  return sendTransactionalEmail({
     to,
     subject: 'Verify your Kall Konnect email',
     html: `

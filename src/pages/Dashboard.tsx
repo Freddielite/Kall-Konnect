@@ -15,6 +15,7 @@ import { getDismissedToday, dismissContactToday } from '@/lib/localDismiss';
 import { buildFollowUpVocabulary, matchFollowUpSignal } from '@/lib/noteSignals';
 import { computeCallStreak } from '@/lib/streaks';
 import { getDashboardGreeting, getEncouragementBanner } from '@/lib/dailyMessages';
+import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { isQuickReturn } from '@/lib/callOutcome';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -272,6 +273,12 @@ export default function Dashboard() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pt-6">
+
+        {user && !user.emailVerified && (
+          <div className="mb-6">
+            <EmailVerificationBanner />
+          </div>
+        )}
 
         {/* Celebrations within the next 3 days */}
         {occasions.length > 0 && (

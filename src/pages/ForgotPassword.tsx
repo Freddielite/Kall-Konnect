@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Mail, Phone, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { Mail, ArrowLeft } from 'lucide-react';
+import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/utils';
-import { useAuth } from '@/lib/auth-context';
 
 export default function ForgotPassword() {
-  const { forgotPassword } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -19,37 +19,36 @@ export default function ForgotPassword() {
     e.preventDefault();
     setLoading(true);
     try {
-      await forgotPassword(email);
-      // Backend always responds generically here regardless of whether the
-      // account exists, so the UI mirrors that rather than confirming or
-      // denying an email is registered.
+      // Backend always responds the same way whether or not the address has
+      // an account, so there's nothing more specific to branch on here.
+      await api.post('/auth/forgot-password', { email }, { auth: false });
       setSent(true);
     } catch (err: unknown) {
-      toast.error(errorMessage(err, 'Something went wrong. Please try again.'));
+      toast.error(errorMessage(err, 'Could not send the reset link.'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md p-8 shadow-elegant">
+    <div className="min-h-screen pt-safe flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md p-8 shadow-elegant animate-in fade-in-0 slide-in-from-bottom-6 duration-700">
         <div className="text-center mb-8">
-          <Phone className="h-12 w-12 mx-auto mb-4 text-primary" />
+          <Mail className="h-12 w-12 mx-auto mb-4 text-primary" />
           <h1 className="text-2xl font-bold text-foreground mb-2">Reset your password</h1>
           <p className="text-sm text-muted-foreground">
-            Enter the email on your account and we'll send you a link to reset your password.
+            Enter your email and we'll send you a link to set a new password.
           </p>
         </div>
 
         {sent ? (
-          <div className="text-center space-y-4">
+          <div className="space-y-6 text-center">
             <p className="text-sm text-foreground">
-              If an account exists for <span className="font-medium">{email}</span>, a reset link is on its way.
+              If <span className="font-medium">{email}</span> has an account, a reset link is on its way. It expires in 1 hour.
             </p>
-            <Link to="/auth" className="text-sm text-primary underline inline-flex items-center gap-1">
-              <ArrowLeft className="h-3 w-3" /> Back to sign in
-            </Link>
+            <Button variant="outline" className="w-full" onClick={() => navigate('/auth')}>
+              Back to sign in
+            </Button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -65,6 +64,7 @@ export default function ForgotPassword() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
                   required
+                  autoFocus
                 />
               </div>
             </div>
@@ -73,9 +73,14 @@ export default function ForgotPassword() {
               {loading ? 'Sending...' : 'Send reset link'}
             </Button>
 
-            <Link to="/auth" className="text-sm text-muted-foreground hover:text-foreground underline inline-flex items-center gap-1 justify-center w-full">
-              <ArrowLeft className="h-3 w-3" /> Back to sign in
-            </Link>
+            <button
+              type="button"
+              onClick={() => navigate('/auth')}
+              className="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to sign in
+            </button>
           </form>
         )}
       </Card>

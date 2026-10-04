@@ -27,6 +27,9 @@ interface AuthContextValue {
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<void>;
+  /** Re-fetches /auth/me — used after verify-email or resend-verification
+   * so `user.emailVerified` updates without a full page reload. */
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -91,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       session, user, loading, login, register, loginWithGoogle, logout,
-      updateDisplayName,
+      updateDisplayName, refreshProfile: fetchProfile,
     }}>
       {children}
     </AuthContext.Provider>

@@ -23,7 +23,7 @@ export async function verifyAccessToken(token) {
   }
 }
 
-function hashToken(token) {
+export function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
@@ -55,4 +55,13 @@ export async function rotateRefreshToken(raw) {
 
 export async function revokeRefreshToken(raw) {
   await query('UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1', [hashToken(raw)]);
+}
+
+/** Logs out every session for a user — used after a password reset, since
+ * anyone with the old password may still be signed in somewhere. */
+export async function revokeAllRefreshTokens(userId) {
+  await query(
+    'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+    [userId]
+  );
 }

@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
-import { signAccessToken, issueRefreshToken, rotateRefreshToken, revokeRefreshToken } from '../lib/tokens.js';
+import { signAccessToken, issueRefreshToken, rotateRefreshToken, revokeRefreshToken, revokeAllRefreshTokens } from '../lib/tokens.js';
 import { verifyGoogleIdToken } from '../lib/google.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { setAuthCookies, clearAuthCookies, setCsrfCookie } from '../lib/cookies.js';
 import { readRefreshToken } from '../lib/session.js';
-import { authLimiter } from '../middleware/rateLimit.js';
+import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimit.js';
+import { issueAuthToken, consumeAuthToken } from '../lib/authTokens.js';
+import { sendPasswordResetEmail, sendVerificationEmail } from '../lib/email.js';
+import { env } from '../env.js';
 
 export const authRouter = Router();
 
@@ -47,6 +50,18 @@ async function issueSession(res, userId) {
   res.json({ userId, accessToken, refreshToken, csrfToken });
 }
 
+/** Best-effort: a flaky email provider should never block account
+ * creation or a resend request, so failures are logged, not thrown. */
+async function sendVerificationEmailFor(userId, email) {
+  try {
+    const token = await issueAuthToken(userId, 'email_verification');
+    const verifyUrl = `${env.appUrl}/verify-email?token=${token}`;
+    await sendVerificationEmail(email, verifyUrl);
+  } catch (err) {
+    console.error('verification email error:', err);
+  }
+}
+
 authRouter.post('/register', authLimiter, async (req, res) => {
   const { email, password, displayName } = req.body ?? {};
   if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
@@ -57,12 +72,13 @@ authRouter.post('/register', authLimiter, async (req, res) => {
     if (existing.rows.length > 0) return res.status(409).json({ error: 'An account with that email already exists' });
 
     const passwordHash = await hashPassword(password);
-    // No mail server configured yet (no domain), so accounts are marked
-    // verified at signup instead of going through an email link.
     const user = await withTransaction((client) =>
-      createUserRow(client, { email, passwordHash, displayName, emailVerified: true })
+      createUserRow(client, { email, passwordHash, displayName, emailVerified: false })
     );
     await issueSession(res, user.id);
+    // Fire-and-forget: the session above is what the client is waiting on,
+    // not this. See sendVerificationEmailFor for why failures don't throw.
+    sendVerificationEmailFor(user.id, user.email);
   } catch (err) {
     console.error('register error:', err);
     res.status(500).json({ error: 'Could not create account' });
@@ -169,6 +185,85 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     displayName: rows[0].display_name,
     emailVerified: rows[0].email_verified,
   });
+});
+
+// Always responds the same way regardless of whether the email exists, so
+// this can't be used to find out which addresses have accounts.
+authRouter.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
+  const { email } = req.body ?? {};
+  const GENERIC_OK = { message: "If that email has an account, we've sent a reset link." };
+  if (!email) return res.status(400).json({ error: 'email is required' });
+
+  try {
+    const { rows } = await query('SELECT id, email FROM users WHERE email = $1', [email]);
+    const user = rows[0];
+    if (user) {
+      const token = await issueAuthToken(user.id, 'password_reset');
+      const resetUrl = `${env.appUrl}/reset-password?token=${token}`;
+      // Logged, not thrown: an email-provider hiccup shouldn't turn into a
+      // 500 that tells an attacker this address IS registered.
+      await sendPasswordResetEmail(user.email, resetUrl).catch((err) =>
+        console.error('password reset email error:', err)
+      );
+    }
+    res.json(GENERIC_OK);
+  } catch (err) {
+    console.error('forgot-password error:', err);
+    // Same generic response even on an unexpected error - see above.
+    res.json(GENERIC_OK);
+  }
+});
+
+authRouter.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body ?? {};
+  if (!token || !password) return res.status(400).json({ error: 'token and password are required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  try {
+    const userId = await consumeAuthToken(token, 'password_reset');
+    if (!userId) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+
+    const passwordHash = await hashPassword(password);
+    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+    // Anyone still signed in with the old password (this device or another)
+    // gets signed out - the whole point of a reset is that the old
+    // credential can no longer be trusted.
+    await revokeAllRefreshTokens(userId);
+    res.json({ message: 'Password updated. Please sign in again.' });
+  } catch (err) {
+    console.error('reset-password error:', err);
+    res.status(500).json({ error: 'Could not reset password' });
+  }
+});
+
+authRouter.post('/verify-email', async (req, res) => {
+  const { token } = req.body ?? {};
+  if (!token) return res.status(400).json({ error: 'token is required' });
+
+  try {
+    const userId = await consumeAuthToken(token, 'email_verification');
+    if (!userId) return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+
+    await query('UPDATE users SET email_verified = true WHERE id = $1', [userId]);
+    res.json({ message: 'Email verified.' });
+  } catch (err) {
+    console.error('verify-email error:', err);
+    res.status(500).json({ error: 'Could not verify email' });
+  }
+});
+
+authRouter.post('/resend-verification', authLimiter, requireAuth, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT email, email_verified FROM users WHERE id = $1', [req.userId]);
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    if (rows[0].email_verified) return res.json({ message: 'Your email is already verified.' });
+
+    await sendVerificationEmailFor(req.userId, rows[0].email);
+    res.json({ message: 'Verification email sent.' });
+  } catch (err) {
+    console.error('resend-verification error:', err);
+    res.status(500).json({ error: 'Could not resend verification email' });
+  }
 });
 
 

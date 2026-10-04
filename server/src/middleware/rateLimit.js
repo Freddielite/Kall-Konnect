@@ -14,3 +14,13 @@ export const authLimiter = rateLimit({
   handler,
 });
 
+/** Forgot-password: tighter than login, since each request sends an email.
+ * Keyed by IP (via req.ip — see TRUST_PROXY in index.js), same as authLimiter. */
+export const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+});
+

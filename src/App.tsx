@@ -10,6 +10,9 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import Dashboard from "./pages/Dashboard";
 import Contacts from "./pages/Contacts";
 import ContactDetail from "./pages/ContactDetail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 import Stats from "./pages/Stats";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
@@ -99,6 +102,9 @@ function AnimatedRoutes({ session }: { session: unknown }) {
           />
 
           <Route path="/oauth/consent" element={<OAuthConsent />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
 
           <Route
             path="/"
