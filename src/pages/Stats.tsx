@@ -38,9 +38,17 @@ export default function Stats() {
 
   const now = Date.now();
   const callsThisWeek = allCalls.filter((c) => now - c.date.getTime() <= 7 * DAY_MS).length;
-  const callsThisMonth = allCalls.filter((c) => now - c.date.getTime() <= 30 * DAY_MS).length;
+  // Calendar month: resets to 0 at 00:00 local time on the 1st. Not a
+  // rolling 30-day window, which kept counting last month's calls.
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const callsThisMonth = allCalls.filter((c) => c.date.getTime() >= monthStart.getTime()).length;
   const totalCalls = allCalls.length;
-  const avgCallsPerWeek = Math.round((callsThisMonth / (30 / 7)) * 10) / 10;
+  // Weekly average stays on a rolling 30-day window so it doesn't swing
+  // wildly in the first days of a new month.
+  const callsLast30Days = allCalls.filter((c) => now - c.date.getTime() <= 30 * DAY_MS).length;
+  const avgCallsPerWeek = Math.round((callsLast30Days / (30 / 7)) * 10) / 10;
 
   // Current streak: consecutive days (ending today or yesterday) with at least one call
   const callDays = new Set(allCalls.map((c) => new Date(c.date).toDateString()));
