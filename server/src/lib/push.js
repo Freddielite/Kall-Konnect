@@ -39,7 +39,7 @@ function ensureConfigured() {
  * difference between "reached the user's phone" and "went nowhere", and *why*
  * it went nowhere. generateNotifications() uses delivered to stamp
  * notifications.sent_at honestly instead of assuming delivery; the reason is
- * what /push/test surfaces back to the user.
+ * what the push doctor (scripts/push-doctor.mjs) reports.
  *
  * A user with no subscribed devices yields delivered: 0, which is a normal
  * outcome, not an error — but it is now a logged one, because "no device has

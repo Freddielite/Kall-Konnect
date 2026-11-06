@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback } from 'react';
 import { errorMessage } from '@/lib/utils';
-import { isPushSupported, getPushStatus, enablePush, disablePush, sendTestPush, ensureRegistered, forceResubscribe, type PushStatus } from '@/lib/push';
+import { isPushSupported, getPushStatus, enablePush, disablePush, ensureRegistered, forceResubscribe, type PushStatus } from '@/lib/push';
 import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
@@ -55,7 +55,6 @@ export default function Settings() {
   const { logout, logoutAll, user, updateDisplayName } = useAuth();
   const [nameDraft, setNameDraft] = useState('');
   const [nameSaving, setNameSaving] = useState(false);
-  const [testingPush, setTestingPush] = useState(false);
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
@@ -150,7 +149,7 @@ export default function Settings() {
     setPushError(null);
     try {
       await forceResubscribe();
-      toast({ title: 'Device re-registered', description: 'Try the test notification again.' });
+      toast({ title: 'Device re-registered', description: 'This device will receive your next reminder.' });
     } catch (err) {
       setPushError(err instanceof Error ? err.message : 'Could not re-register this device.');
     } finally {
@@ -166,20 +165,6 @@ export default function Settings() {
     } finally {
       setPushBusy(false);
       await refreshPushStatus();
-    }
-  };
-
-  const handleTestPush = async () => {
-    setTestingPush(true);
-    try {
-      const result = await sendTestPush();
-      toast({
-        title: result.ok ? 'Test notification sent' : "Test notification didn't send",
-        description: result.message,
-        variant: result.ok ? undefined : 'destructive',
-      });
-    } finally {
-      setTestingPush(false);
     }
   };
 
@@ -356,19 +341,9 @@ export default function Settings() {
                   </p>
                   <Button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={handleTestPush}
-                    disabled={testingPush}
-                  >
-                    {testingPush ? 'Sending…' : 'Send a test notification'}
-                  </Button>
-                  <Button
-                    type="button"
                     variant="ghost"
                     size="sm"
-                    className="rounded-xl ml-2"
+                    className="rounded-xl"
                     onClick={handleResubscribe}
                     disabled={pushBusy}
                   >

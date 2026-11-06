@@ -88,6 +88,13 @@ endpoints changed shape).
 - `.gitignore` (there wasn't one; a real `.env` could have been committed).
 - The two old `tsc` errors and six lint errors are fixed.
 
+### Removed
+
+- The "Send a test notification" button in Settings, `sendTestPush()` in
+  `src/lib/push.ts` and `POST /push/test`. The server-side diagnostics
+  (`npm run push-doctor`, `npm run notifications-doctor`) remain for
+  debugging delivery.
+
 ### Not done
 
 - Frontend CSP (see above); React Router v7.

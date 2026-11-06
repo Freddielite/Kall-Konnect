@@ -232,31 +232,3 @@ export async function disablePush(): Promise<void> {
     await existing.unsubscribe();
   }
 }
-
-/** Asks the server to push to this account now. Read-only with respect to
- * permission — it cannot prompt, so it is safe to offer at any time. */
-export async function sendTestPush(): Promise<{ ok: boolean; message: string }> {
-  try {
-    // Re-sync first. Otherwise a test can fail purely because the server's
-    // copy was culled, which reads as "push is broken" when the fix is one
-    // upsert away.
-    await ensureRegistered();
-    const result = await api.post<{ message?: string }>('/push/test', {});
-    return { ok: true, message: result.message ?? 'Test notification sent.' };
-  } catch (err) {
-    // A failed send means the endpoint the browser gave us is dead. Retrying
-    // with the same one is pointless, so mint a new subscription and try once
-    // more. One retry only — if a fresh endpoint also fails, the problem is
-    // not staleness and looping would just hide it.
-    try {
-      await forceResubscribe();
-      const retry = await api.post<{ message?: string }>('/push/test', {});
-      return { ok: true, message: retry.message ?? 'Test notification sent.' };
-    } catch (retryErr) {
-      return {
-        ok: false,
-        message: retryErr instanceof Error ? retryErr.message : 'Could not send a test notification.',
-      };
-    }
-  }
-}
