@@ -4,6 +4,101 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## 2026-11-06 — Production hardening
+
+Started as an audit against a production-readiness checklist; everything
+below was found by running the app, not by reading it. Release steps are in
+DEPLOYING.md §9. **Server and frontend must deploy together** (list
+endpoints changed shape).
+
+### Fixed — security
+
+- **One request could kill the server.** Express 4 doesn't catch rejected
+  promises from async handlers, so e.g. `POST /auth/refresh
+  {"refreshToken":123}` (no account needed) or `DELETE /contacts/abc`
+  crashed the process. `lib/asyncErrors.js` routes them to the error
+  handler. The WebSocket upgrade had the same flaw. Remove the shim if
+  upgrading to Express 5, which does this natively.
+- **Email was case-sensitive**: `Alice@x.com` and `alice@x.com` were two
+  accounts, and `ALICE@x.com` couldn't log in. Migration 012 normalizes
+  addresses and adds a case-insensitive unique index. Existing duplicates are
+  flagged (`email_case_conflict`), not merged; both keep working. List them
+  with `npm run email-conflicts`, merge with `npm run merge-accounts`.
+- **Google sign-in** now requires Google's `email_verified` before linking
+  or creating an account by email (account-takeover path).
+- **Sessions:** "Sign out everywhere" (Settings > Security,
+  `POST /auth/logout-all`). Access tokens carry `users.session_version`, so
+  logout-all and password resets end every session immediately instead of
+  after the 15-minute token lifetime; MCP OAuth tokens and open sockets go
+  too. Refresh rotation is atomic (concurrent refreshes used to mint two
+  live tokens) with reuse detection: a token replayed >60s after rotation
+  revokes every session for that user. Reset links are consumed atomically.
+- **Rate limits** (`middleware/rateLimit.js`): login per IP counts failures
+  only, plus a per-account limit across IPs (30 failures/hour, temporary,
+  never a hard lockout). Register, reset and verify are limited too.
+  Unknown-email logins take as long as wrong passwords; forgot-password no
+  longer waits on the email provider (both were timing leaks).
+- **Passwords:** 8 characters minimum, 72 bytes maximum (bcrypt silently
+  truncates beyond that).
+- **Validation** on every write path (`lib/validate.js`), including the MCP
+  tools. Responses no longer echo Postgres errors; `22xxx`/`23xxx` map to a
+  generic 400/409 in `index.js` and are logged.
+- **Headers:** strict CSP and friends on every API response
+  (`lib/securityHeaders.js`, HSTS in production), `X-Powered-By` off; the
+  safe subset in `vercel.json`. A CSP for the frontend is NOT set: it needs
+  the production API origin and Google sign-in's domains, and should be
+  trialled as Report-Only first.
+- **Dependencies:** server `npm audit` clean (qs/uuid pinned via
+  `overrides`); unused `zod` removed; `safeNext()` rejects backslash
+  redirects (React Router's open-redirect advisory). React Router 6 still
+  carries a moderate advisory; the exploitable path is closed, and the v7
+  upgrade is a separate piece of work.
+
+### Fixed — reminders
+
+- **Daily reminders arrived every other day.** `isRoutineDue` counted whole
+  24h periods; yesterday's row is written seconds after the run starts, so
+  today's run saw 23h59m = "0 days". Weekly slipped to 8 days. Now counted
+  in calendar days on the user's clock. Regression test in
+  `jobs/timezones.test.js`.
+- **Category toggles and the quiet-day switch never worked**: the job's
+  SELECT didn't fetch those columns, so they read as undefined = on.
+- **Per-user timezones** (NEXT UP #1 below): `users.timezone` comes from the
+  browser at signup and on every app load. The job runs every 15 minutes
+  and reminds each user once per local day, at the start of their
+  "Preferred Call Time" window (morning 08:00, afternoon 12:00, evening
+  17:00; "anytime" = `reminder_time`, default 09:00). This makes the
+  previously dead `preferred_call_time` control real. **Behaviour change:**
+  it defaulted to evening, so most users move from ~07:00 to 17:00.
+  `CRON_SCHEDULE` is gone; `CRON_TIMEZONE` is only the fallback.
+
+### Added
+
+- Soft delete for contacts (migration 015): Settings > Recently Deleted
+  restores a contact with its notes and dates for 30 days; a daily
+  housekeeping job then purges it, plus expired tokens.
+- Keyset pagination on `GET /contacts` and `GET /call-notes`
+  (`{ items, nextCursor }`, `?limit=` up to 500). The frontend walks all
+  pages via `api.getAll`.
+- Rollback for every migration (`npm run migrate:down`), guarded where it
+  would lose data.
+- Tests: 80 unit (`npm test`), 26 integration against real Postgres
+  (`npm run test:integration`). CI (`.github/workflows/ci.yml`) runs them,
+  plus typecheck, lint, build, audit and a migration round-trip.
+- `.gitignore` (there wasn't one; a real `.env` could have been committed).
+- The two old `tsc` errors and six lint errors are fixed.
+
+### Not done
+
+- Frontend CSP (see above); React Router v7.
+- Users who never open the app keep the `CRON_TIMEZONE` fallback.
+- Non-code items from the audit — tested backup restores, point-in-time
+  recovery, monitoring/alerting, on-call — need someone to set up. Render's
+  plan decides what backups exist; restore one into a scratch database at
+  least once to know it works.
+
+---
+
 ## NEXT UP — notifications
 
 Consolidated from the 2026-09-02 (a)-(f) entries below, so the open items
@@ -33,7 +128,7 @@ what. Nothing here is started.
   things mid-month, which looks like the app dying for no reason. Verify
   current limits on Render's pricing page.
 
-### 1. Timezone column — blocks three separate things
+### 1. ~~Timezone column~~ — DONE 2026-11-06 (see top entry); streak-at-risk evening reminders are now possible but not built
 
 `users` and `user_preferences` have no timezone. Capture it at signup from
 `Intl.DateTimeFormat().resolvedOptions().timeZone`, then switch the cron to

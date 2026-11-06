@@ -33,8 +33,16 @@ const buttonVariants = cva(
 
 const DEFAULT_TAP_TRANSITION: Transition = { type: "spring", stiffness: 500, damping: 30 };
 
+/** HTML drag and animation event props share names with framer-motion's
+ * own (onDrag, onAnimationStart...) but take different arguments, so they
+ * can't be passed through to a motion.button. No button in the app uses
+ * them; omitting them makes that a compile error rather than a silent clash. */
+type MotionConflictingProps =
+  | 'onDrag' | 'onDragStart' | 'onDragEnd'
+  | 'onAnimationStart' | 'onAnimationEnd' | 'onAnimationIteration';
+
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, MotionConflictingProps>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
   /**

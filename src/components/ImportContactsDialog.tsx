@@ -122,7 +122,7 @@ export function ImportContactsDialog({ open, onOpenChange, onImportContacts }: I
 
     const lines = contactsInput.trim().split('\n');
     const contacts: ParsedVCardContact[] = lines
-      .map(line => {
+      .map((line): ParsedVCardContact | null => {
         const trimmed = line.trim();
         if (!trimmed) return null;
         const parts = trimmed.split(',').map(p => p.trim());
@@ -369,7 +369,7 @@ export function ImportContactsDialog({ open, onOpenChange, onImportContacts }: I
 
             <div className="space-y-2">
               <Label>Relationship</Label>
-              <RadioGroup value={relationship} onValueChange={(value: any) => setRelationship(value)}>
+              <RadioGroup value={relationship} onValueChange={(value) => setRelationship(value as 'family' | 'friend' | 'colleague' | 'acquaintance')}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="family" id="family" />
                   <Label htmlFor="family" className="cursor-pointer font-normal">Family</Label>

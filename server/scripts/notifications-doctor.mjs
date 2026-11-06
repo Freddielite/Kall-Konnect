@@ -48,13 +48,15 @@ const head = (m) => console.log(`\n\x1b[1m${m}\x1b[0m`);
 // ── --reset ───────────────────────────────────────────────────────────────
 if (resetEmail) {
   head(`Resetting notification history for ${resetEmail}`);
-  const { rows: users } = await query('SELECT id FROM users WHERE email = $1', [resetEmail]);
+  const { rows: users } = await query('SELECT id FROM users WHERE lower(email) = lower($1)', [resetEmail.trim()]);
   if (!users[0]) {
     bad(`No user with email ${resetEmail}`);
     await pool.end();
     process.exit(1);
   }
   const { rowCount } = await query('DELETE FROM notifications WHERE user_id = $1', [users[0].id]);
+  // So today's scheduled run treats them as not yet processed, too.
+  await query('UPDATE user_preferences SET reminders_processed_on = NULL WHERE user_id = $1', [users[0].id]);
   ok(`Deleted ${rowCount} notification row(s) — cooldowns cleared.`);
   await pool.end();
   process.exit(0);
@@ -121,7 +123,9 @@ else bad('No users have notifications_enabled = true.', 'The job will do nothing
 // ── 2. Dry run ────────────────────────────────────────────────────────────
 head(doRun ? '2. Plan (about to be executed)' : '2. Dry run — what a real run would create');
 
-const { plan } = await generateNotifications({ dryRun: true });
+// ignoreReminderTime: show what each user WOULD get, whatever their local
+// time is right now. The real scheduled run waits for each user's time.
+const { plan } = await generateNotifications({ dryRun: true, ignoreReminderTime: true });
 
 if (plan.length === 0) {
   console.log('  No users with notifications enabled.');
@@ -174,7 +178,7 @@ for (const p of plan) {
 // ── 3. Execute ────────────────────────────────────────────────────────────
 if (doRun) {
   head('3. Executing for real');
-  const { created } = await generateNotifications();
+  const { created } = await generateNotifications({ ignoreReminderTime: true });
   ok(`Created ${created} notification(s).`);
   console.log(
     '\n  Check the app: the bell should update live (no refresh) if a tab is open,\n' +

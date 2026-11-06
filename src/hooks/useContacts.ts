@@ -44,8 +44,8 @@ let activeConsumers = 0;
  * mounted consumer, instead of each page firing its own three requests. */
 async function fetchContactsData(): Promise<Contact[]> {
   const [contactsData, notesData, specialDatesData] = await Promise.all([
-        api.get<ContactRow[]>('/contacts'),
-        api.get<CallNoteRow[]>('/call-notes'),
+        api.getAll<ContactRow>('/contacts'),
+        api.getAll<CallNoteRow>('/call-notes'),
         api.get<SpecialDateRow[]>('/special-dates'),
       ]);
 

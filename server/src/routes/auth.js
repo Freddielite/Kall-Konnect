@@ -1,24 +1,28 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
-import { signAccessToken, issueRefreshToken, rotateRefreshToken, revokeRefreshToken, revokeAllRefreshTokens } from '../lib/tokens.js';
+import { signAccessToken, issueRefreshToken, rotateRefreshToken, revokeRefreshToken, revokeAllSessions } from '../lib/tokens.js';
 import { verifyGoogleIdToken } from '../lib/google.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { setAuthCookies, clearAuthCookies, setCsrfCookie } from '../lib/cookies.js';
 import { readRefreshToken } from '../lib/session.js';
-import { authLimiter, forgotPasswordLimiter } from '../middleware/rateLimit.js';
-import { issueAuthToken, consumeAuthToken } from '../lib/authTokens.js';
+import {
+  loginIpLimiter, loginAccountLimiter, registerLimiter, forgotPasswordLimiter, tokenLimiter,
+} from '../middleware/rateLimit.js';
+import { issueAuthToken, consumeAuthToken, invalidateAuthTokens } from '../lib/authTokens.js';
+import { pick, str, email as emailSpec, password as passwordSpec, timeZone, optional, normalizeEmail, ValidationError } from '../lib/validate.js';
+import { disconnectUser } from '../ws.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../lib/email.js';
 import { env } from '../env.js';
 
 export const authRouter = Router();
 
-async function createUserRow(client, { email, passwordHash, displayName, googleSub, emailVerified }) {
+async function createUserRow(client, { email, passwordHash, displayName, googleSub, emailVerified, timezone }) {
   const { rows } = await client.query(
-    `INSERT INTO users (email, password_hash, display_name, google_sub, email_verified)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO users (email, password_hash, display_name, google_sub, email_verified, timezone)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, email, display_name, email_verified`,
-    [email, passwordHash ?? null, displayName ?? null, googleSub ?? null, Boolean(emailVerified)]
+    [email, passwordHash ?? null, displayName ?? null, googleSub ?? null, Boolean(emailVerified), timezone ?? null]
   );
   const user = rows[0];
   // Equivalent of the old handle_new_user() trigger on auth.users.
@@ -62,44 +66,68 @@ async function sendVerificationEmailFor(userId, email) {
   }
 }
 
-authRouter.post('/register', authLimiter, async (req, res) => {
-  const { email, password, displayName } = req.body ?? {};
-  if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+/** All accounts whose email matches, case-insensitively. Usually zero or
+ * one; more only for pre-existing duplicates flagged by migration 012. */
+async function usersByEmail(normalized, columns = 'id, email, password_hash') {
+  const { rows } = await query(
+    `SELECT ${columns} FROM users WHERE lower(email) = $1 ORDER BY created_at`,
+    [normalized]
+  );
+  return rows;
+}
 
+const REGISTER_FIELDS = {
+  email: emailSpec(),
+  password: passwordSpec(),
+  displayName: optional(str({ max: 100, nullable: true }), null),
+  timezone: optional(timeZone(), null),
+};
+
+authRouter.post('/register', registerLimiter, async (req, res) => {
+  const { email, password, displayName, timezone } = pick(req.body ?? {}, REGISTER_FIELDS);
+
+  const existing = await usersByEmail(email, 'id');
+  if (existing.length > 0) return res.status(409).json({ error: 'An account with that email already exists' });
+
+  const passwordHash = await hashPassword(password);
+  let user;
   try {
-    const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.rows.length > 0) return res.status(409).json({ error: 'An account with that email already exists' });
-
-    const passwordHash = await hashPassword(password);
-    const user = await withTransaction((client) =>
-      createUserRow(client, { email, passwordHash, displayName, emailVerified: false })
+    user = await withTransaction((client) =>
+      createUserRow(client, { email, passwordHash, displayName, emailVerified: false, timezone })
     );
-    await issueSession(res, user.id);
-    // Fire-and-forget: the session above is what the client is waiting on,
-    // not this. See sendVerificationEmailFor for why failures don't throw.
-    sendVerificationEmailFor(user.id, user.email);
   } catch (err) {
-    console.error('register error:', err);
-    res.status(500).json({ error: 'Could not create account' });
+    // Two sign-ups for the same address racing past the check above.
+    if (err.code === '23505') return res.status(409).json({ error: 'An account with that email already exists' });
+    throw err;
   }
+  await issueSession(res, user.id);
+  // Fire-and-forget: the session above is what the client is waiting on,
+  // not this. See sendVerificationEmailFor for why failures don't throw.
+  sendVerificationEmailFor(user.id, user.email);
 });
 
-authRouter.post('/login', authLimiter, async (req, res) => {
+authRouter.post('/login', loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const { email, password } = req.body ?? {};
-  if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
-
-  try {
-    const { rows } = await query('SELECT id, password_hash FROM users WHERE email = $1', [email]);
-    const user = rows[0];
-    if (!user || !(await verifyPassword(password, user.password_hash))) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-    await issueSession(res, user.id);
-  } catch (err) {
-    console.error('login error:', err);
-    res.status(500).json({ error: 'Could not sign in' });
+  const normalized = normalizeEmail(email);
+  if (!normalized || typeof password !== 'string' || password.length === 0) {
+    return res.status(400).json({ error: 'email and password are required' });
   }
+
+  // Usually one match. Accounts flagged as case-duplicates by migration 012
+  // can share an address; each keeps working with its own password.
+  const candidates = await usersByEmail(normalized);
+  let userId = null;
+  if (candidates.length === 0) {
+    await verifyPassword(password, null); // same timing as a wrong password
+  }
+  for (const user of candidates) {
+    if (await verifyPassword(password, user.password_hash)) {
+      userId = user.id;
+      break;
+    }
+  }
+  if (!userId) return res.status(401).json({ error: 'Invalid email or password' });
+  await issueSession(res, userId);
 });
 
 // Frontend posts the Google Identity Services `credential` (an ID token) here.
@@ -108,22 +136,35 @@ authRouter.post('/google', async (req, res) => {
   if (!idToken) return res.status(400).json({ error: 'idToken is required' });
 
   try {
-    const { sub, email, name } = await verifyGoogleIdToken(idToken);
+    const { sub, email: rawEmail, emailVerified, name } = await verifyGoogleIdToken(idToken);
+    const email = normalizeEmail(rawEmail);
 
-    const existing = await query('SELECT id FROM users WHERE google_sub = $1 OR email = $2', [sub, email]);
-    let userId = existing.rows[0]?.id;
+    // An account already linked to this Google identity wins outright.
+    const bySub = await query('SELECT id FROM users WHERE google_sub = $1', [sub]);
+    let userId = bySub.rows[0]?.id;
 
     if (!userId) {
-      const user = await withTransaction((client) =>
-        createUserRow(client, { email, displayName: name, googleSub: sub, emailVerified: true })
-      );
-      userId = user.id;
-    } else {
-      await query('UPDATE users SET google_sub = $1 WHERE id = $2 AND google_sub IS NULL', [sub, userId]);
+      // Linking by email, or creating an account under that email, is only
+      // safe when Google has verified the person owns the address.
+      if (!email || !emailVerified) {
+        return res.status(401).json({ error: 'Your Google account email is not verified.' });
+      }
+      const byEmail = await usersByEmail(email, 'id');
+      if (byEmail.length > 0) {
+        userId = byEmail[0].id; // oldest, if migration 012 flagged duplicates
+        await query('UPDATE users SET google_sub = $1, email_verified = true WHERE id = $2 AND google_sub IS NULL', [sub, userId]);
+      } else {
+        const timezone = REGISTER_FIELDS.timezone(req.body?.timezone, 'timezone');
+        const user = await withTransaction((client) =>
+          createUserRow(client, { email, displayName: name, googleSub: sub, emailVerified: true, timezone })
+        );
+        userId = user.id;
+      }
     }
 
     await issueSession(res, userId);
   } catch (err) {
+    if (err instanceof ValidationError) throw err;
     console.error('google sign-in error:', err);
     res.status(401).json({ error: 'Could not verify Google sign-in' });
   }
@@ -158,25 +199,44 @@ authRouter.post('/logout', async (req, res) => {
   res.status(204).end();
 });
 
+/** "Sign out everywhere": ends every session on every device, including
+ * this one and any connected MCP client. For a lost phone, or "I think
+ * someone else is in my account". */
+authRouter.post('/logout-all', requireAuth, async (req, res) => {
+  await revokeAllSessions(req.userId);
+  disconnectUser(req.userId);
+  clearAuthCookies(res);
+  res.status(204).end();
+});
+
 authRouter.get('/me', requireAuth, async (req, res) => {
-  const { rows } = await query('SELECT id, email, display_name, email_verified FROM users WHERE id = $1', [req.userId]);
+  const { rows } = await query('SELECT id, email, display_name, email_verified, timezone FROM users WHERE id = $1', [req.userId]);
   if (!rows[0]) return res.status(404).json({ error: 'User not found' });
   res.json({
     id: rows[0].id,
     email: rows[0].email,
     displayName: rows[0].display_name,
     emailVerified: rows[0].email_verified,
+    timezone: rows[0].timezone,
   });
 });
 
+const ME_FIELDS = {
+  displayName: str({ min: 1, max: 100 }),
+  timezone: timeZone(),
+};
+
 authRouter.patch('/me', requireAuth, async (req, res) => {
-  const { displayName } = req.body ?? {};
-  if (typeof displayName !== 'string' || displayName.trim().length === 0) {
-    return res.status(400).json({ error: 'displayName is required' });
-  }
+  const updates = pick(req.body ?? {}, ME_FIELDS, { partial: true });
+  const columns = { displayName: 'display_name', timezone: 'timezone' };
+  const keys = Object.keys(updates);
+  if (keys.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
   const { rows } = await query(
-    'UPDATE users SET display_name = $1 WHERE id = $2 RETURNING id, email, display_name, email_verified',
-    [displayName.trim(), req.userId]
+    `UPDATE users SET ${keys.map((k, i) => `${columns[k]} = $${i + 1}`).join(', ')}
+      WHERE id = $${keys.length + 1}
+      RETURNING id, email, display_name, email_verified, timezone`,
+    [...keys.map((k) => updates[k]), req.userId]
   );
   if (!rows[0]) return res.status(404).json({ error: 'User not found' });
   res.json({
@@ -184,25 +244,28 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     email: rows[0].email,
     displayName: rows[0].display_name,
     emailVerified: rows[0].email_verified,
+    timezone: rows[0].timezone,
   });
 });
 
 // Always responds the same way regardless of whether the email exists, so
 // this can't be used to find out which addresses have accounts.
 authRouter.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
-  const { email } = req.body ?? {};
   const GENERIC_OK = { message: "If that email has an account, we've sent a reset link." };
-  if (!email) return res.status(400).json({ error: 'email is required' });
+  const email = normalizeEmail(req.body?.email);
+  if (!email) return res.status(400).json({ error: 'A valid email is required' });
 
   try {
-    const { rows } = await query('SELECT id, email FROM users WHERE email = $1', [email]);
-    const user = rows[0];
-    if (user) {
+    // One link per matching account (more than one only for duplicates
+    // flagged by migration 012), each sent to that account's own address.
+    for (const user of await usersByEmail(email, 'id, email')) {
       const token = await issueAuthToken(user.id, 'password_reset');
       const resetUrl = `${env.appUrl}/reset-password?token=${token}`;
-      // Logged, not thrown: an email-provider hiccup shouldn't turn into a
-      // 500 that tells an attacker this address IS registered.
-      await sendPasswordResetEmail(user.email, resetUrl).catch((err) =>
+      // Not awaited, and logged rather than thrown: waiting on the email
+      // provider would make "registered" responses measurably slower than
+      // "not registered" ones, and a provider error must not become a 500
+      // that tells an attacker this address IS registered.
+      sendPasswordResetEmail(user.email, resetUrl).catch((err) =>
         console.error('password reset email error:', err)
       );
     }
@@ -214,29 +277,26 @@ authRouter.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   }
 });
 
-authRouter.post('/reset-password', async (req, res) => {
-  const { token, password } = req.body ?? {};
-  if (!token || !password) return res.status(400).json({ error: 'token and password are required' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+authRouter.post('/reset-password', tokenLimiter, async (req, res) => {
+  const { token } = req.body ?? {};
+  if (typeof token !== 'string' || !token) return res.status(400).json({ error: 'token is required' });
+  const { password } = pick(req.body, { password: passwordSpec() });
 
-  try {
-    const userId = await consumeAuthToken(token, 'password_reset');
-    if (!userId) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+  const userId = await consumeAuthToken(token, 'password_reset');
+  if (!userId) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
 
-    const passwordHash = await hashPassword(password);
-    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
-    // Anyone still signed in with the old password (this device or another)
-    // gets signed out - the whole point of a reset is that the old
-    // credential can no longer be trusted.
-    await revokeAllRefreshTokens(userId);
-    res.json({ message: 'Password updated. Please sign in again.' });
-  } catch (err) {
-    console.error('reset-password error:', err);
-    res.status(500).json({ error: 'Could not reset password' });
-  }
+  const passwordHash = await hashPassword(password);
+  await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+  // The old credential can no longer be trusted: end every session on
+  // every device right now (not when access tokens expire), and kill any
+  // other reset links still sitting in the inbox.
+  await revokeAllSessions(userId);
+  await invalidateAuthTokens(userId, 'password_reset');
+  disconnectUser(userId);
+  res.json({ message: 'Password updated. Please sign in again.' });
 });
 
-authRouter.post('/verify-email', async (req, res) => {
+authRouter.post('/verify-email', tokenLimiter, async (req, res) => {
   const { token } = req.body ?? {};
   if (!token) return res.status(400).json({ error: 'token is required' });
 
@@ -252,7 +312,7 @@ authRouter.post('/verify-email', async (req, res) => {
   }
 });
 
-authRouter.post('/resend-verification', authLimiter, requireAuth, async (req, res) => {
+authRouter.post('/resend-verification', tokenLimiter, requireAuth, async (req, res) => {
   try {
     const { rows } = await query('SELECT email, email_verified FROM users WHERE id = $1', [req.userId]);
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });

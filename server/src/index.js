@@ -1,3 +1,6 @@
+// Must be first: makes async handler errors reach the error handler below
+// instead of crashing the process. See lib/asyncErrors.js.
+import './lib/asyncErrors.js';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -17,6 +20,7 @@ import { startCronJobs } from './jobs/cron.js';
 import { runMigrations } from './migrate.js';
 import { jobsRouter } from './routes/jobs.js';
 import { checkCookieConfig, SAME_SITE } from './lib/cookies.js';
+import { securityHeaders } from './lib/securityHeaders.js';
 
 const app = express();
 
@@ -25,6 +29,8 @@ const app = express();
 // every user into one rate-limit bucket — the forgot-password limiter is
 // 5/hour, so the 6th reset request from ANY user would 429 and send no email.
 app.set('trust proxy', env.trustProxy);
+app.disable('x-powered-by');
+app.use(securityHeaders);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -40,7 +46,9 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+// 200 kB: the largest legitimate body is a contact with an embedded vCard
+// photo (capped at 100k characters in lib/validate.js).
+app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 
 app.get('/health', (req, res) => res.json({ ok: true }));
@@ -95,6 +103,21 @@ app.use((err, req, res, next) => {
         `[cors] → Fix: add ${err.corsOrigin} to CORS_ORIGIN in server/.env and restart.`
     );
     return res.status(403).json({ error: err.message });
+  }
+
+  // Malformed JSON body, or one over the size limit (from express.json).
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Request body is not valid JSON' });
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large' });
+
+  // Postgres errors that mean "bad input", not "server fault". The message
+  // is never passed through: it names tables, columns and constraints.
+  // Routes validate first (lib/validate.js), so reaching these is a gap in
+  // validation worth seeing in the logs.
+  if (typeof err?.code === 'string' && /^(22|23)/.test(err.code)) {
+    console.warn(`[db] ${err.code} on ${req.method} ${req.path}: ${err.message}`);
+    if (err.code === '22P02') return res.status(400).json({ error: 'Invalid id' });
+    if (err.code === '23505') return res.status(409).json({ error: 'That already exists' });
+    return res.status(400).json({ error: 'Invalid data' });
   }
 
   const status = Number(err?.status) || 500;

@@ -82,10 +82,12 @@ export default function ResetPassword() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
                   required
-                  minLength={6}
+                  minLength={8}
                   autoFocus
+                  aria-describedby="reset-password-hint"
                 />
               </div>
+              <p id="reset-password-hint" className="text-xs text-muted-foreground">At least 8 characters.</p>
             </div>
 
             <div className="space-y-2">
@@ -100,7 +102,7 @@ export default function ResetPassword() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="pl-10"
                   required
-                  minLength={6}
+                  minLength={8}
                 />
               </div>
             </div>

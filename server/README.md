@@ -133,9 +133,31 @@ replay it yourself.
 
 ## Notifications
 
-`jobs/cron.js` schedules the same daily-06:00 generation the old
-`pg_cron` + edge function did. To trigger it manually instead of waiting:
+`jobs/cron.js` checks every 15 minutes and reminds each user once a day at
+their own local reminder time (see `jobs/reminderRules.js`). A daily
+housekeeping job purges contacts deleted over 30 days ago and expired tokens. To trigger it manually instead of waiting:
 
 ```js
 node -e "import('./src/jobs/generateNotifications.js').then(m => m.generateNotifications()).then(console.log)"
+```
+
+## Testing
+
+```bash
+npm test                 # unit tests: reminder rules, timezones, validation (no database)
+TEST_DATABASE_URL=postgres://user:pass@localhost:5432/kk_test npm run test:integration
+```
+
+The integration suite starts its own server against `TEST_DATABASE_URL`
+(migrations run on boot) and covers auth, sessions, rate limits, data
+isolation, validation, pagination, soft delete and the reminder job. Point it
+at a throwaway database: it creates users and never cleans up. CI runs both
+suites on every push (`.github/workflows/ci.yml`).
+
+## Account maintenance
+
+```bash
+npm run email-conflicts                                       # accounts differing only in email case
+npm run merge-accounts -- --keep <id> --remove <id> [--yes]  # merge one into the other
+npm run migrate:down [-- --steps N]                           # roll back migrations
 ```

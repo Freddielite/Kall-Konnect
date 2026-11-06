@@ -42,7 +42,7 @@ jobsRouter.post('/jobs/generate-notifications', async (req, res) => {
     res.json({ ok: true, created, ms });
   } catch (err) {
     console.error('[jobs] generate-notifications failed:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Job failed; see server logs' });
   }
 });
 
@@ -102,7 +102,7 @@ jobsRouter.get('/jobs/tick', async (req, res) => {
     res.json({ ok: true, created, ms });
   } catch (err) {
     console.error('[jobs] tick failed:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Job failed; see server logs' });
   }
 });
 
@@ -140,6 +140,6 @@ jobsRouter.get('/jobs/push-doctor', async (req, res) => {
     res.type('application/json').send(JSON.stringify(payload, null, 2));
   } catch (err) {
     console.error('[jobs] push-doctor failed:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Job failed; see server logs' });
   }
 });

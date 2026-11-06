@@ -51,5 +51,8 @@ export function readAccessToken(req) {
  * confuse it with.
  */
 export function readRefreshToken(req) {
-  return req.cookies?.[REFRESH_COOKIE] ?? req.body?.refreshToken ?? undefined;
+  const token = req.cookies?.[REFRESH_COOKIE] ?? req.body?.refreshToken;
+  // Anything but a string (a number, an object from a crafted body) is not
+  // a token; treat it as absent rather than let it reach hashToken().
+  return typeof token === 'string' ? token : undefined;
 }

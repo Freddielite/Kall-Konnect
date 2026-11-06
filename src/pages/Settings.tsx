@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User, Trash2, ShieldCheck } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,11 @@ import type { NotificationCategory } from '@/hooks/usePreferences';
 import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
 import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
+import { RecentlyDeleted } from '@/components/RecentlyDeleted';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 /** Mirrors NOTIFICATION_CATEGORIES in server/src/jobs/reminderRules.js and
  * the notifications.type CHECK constraint. Keep the three in sync. */
@@ -47,7 +52,7 @@ export default function Settings() {
   const googleCalendar = useGoogleCalendar();
   const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme } = useTheme();
-  const { logout, user, updateDisplayName } = useAuth();
+  const { logout, logoutAll, user, updateDisplayName } = useAuth();
   const [nameDraft, setNameDraft] = useState('');
   const [nameSaving, setNameSaving] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
@@ -183,6 +188,22 @@ export default function Settings() {
   // the old UI show reminders as on while nothing could receive them.
   const handleNotificationsToggle = (checked: boolean) => {
     updatePreferences({ notifications_enabled: checked });
+  };
+
+  const handleLogoutAll = async () => {
+    setSigningOut(true);
+    try {
+      await logoutAll();
+      setTimeout(() => setSignOutFadeOut(true), 900);
+      setTimeout(() => navigate('/auth'), 1400);
+    } catch (error: unknown) {
+      setSigningOut(false);
+      toast({
+        title: "Couldn't sign out everywhere",
+        description: errorMessage(error),
+        variant: "destructive",
+      });
+    }
   };
 
   const handleLogout = async () => {
@@ -513,6 +534,11 @@ export default function Settings() {
                     <SelectItem value="anytime">Anytime</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {preferences.preferred_call_time === 'anytime'
+                    ? 'Your daily reminder arrives at 9am, your local time.'
+                    : 'Your daily reminder arrives at the start of this window, your local time.'}
+                </p>
               </div>
             </div>
           </Card>
@@ -605,6 +631,52 @@ export default function Settings() {
                 onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
               />
             </div>
+          </Card>
+        </div>
+
+        {/* Recently deleted */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Trash2 className="h-5 w-5 text-primary" />
+            Recently Deleted
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <RecentlyDeleted />
+          </Card>
+        </div>
+
+        {/* Security */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            Security
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <p className="font-medium text-foreground">Sign out everywhere</p>
+            <p className="text-sm text-muted-foreground mt-1 mb-4">
+              Lost a phone, or think someone else is using your account? This signs out every
+              device at once, including this one.
+            </p>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" className="w-full rounded-xl border-2 border-destructive/20 text-destructive hover:bg-destructive/10">
+                  Sign out of all devices
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sign out of all devices?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Every phone, tablet and browser signed in to your account will be signed out,
+                    including this one. You'll need your password to sign back in.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleLogoutAll}>Sign out everywhere</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </Card>
         </div>
 

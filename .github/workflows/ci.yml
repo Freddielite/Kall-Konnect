@@ -1,0 +1,78 @@
+# Runs on every push and pull request. Nothing reaches main without:
+# a clean typecheck, lint, a production build, the server's unit tests,
+# the API integration tests against a real Postgres, and no known
+# high/critical vulnerabilities in production dependencies.
+#
+# To make this a real gate, protect the main branch:
+#   GitHub > Settings > Branches > Add rule for "main" >
+#   "Require status checks to pass" > select "frontend" and "server".
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.app.json
+      - run: npm run lint
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kk
+          POSTGRES_PASSWORD: kk
+          POSTGRES_DB: kk_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U kk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://kk:kk@localhost:5432/kk_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      # Every migration must also roll back and re-apply cleanly. Runs on
+      # the empty database, before the tests add data: some rollbacks
+      # (006, 007) deliberately refuse to run while rows they can't
+      # represent exist, rather than delete them.
+      - name: Migrations round-trip
+        env:
+          DATABASE_URL: postgres://kk:kk@localhost:5432/kk_test
+          JWT_SECRET: ci
+        run: |
+          npm run migrate
+          node src/migrate.js down --steps 100 --allow-data-loss
+          npm run migrate
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm audit --audit-level=high

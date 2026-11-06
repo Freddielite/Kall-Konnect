@@ -7,6 +7,17 @@ export interface UserProfile {
   email: string;
   displayName: string | null;
   emailVerified: boolean;
+  timezone: string | null;
+}
+
+/** The browser's IANA timezone (e.g. "Africa/Lagos"), so reminders arrive
+ * at the user's own local time. Undefined if the browser won't say. */
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Auth now lives in an httpOnly cookie we can't read from JS, so there's
@@ -26,6 +37,7 @@ interface AuthContextValue {
   register: (email: string, password: string, displayName?: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<void>;
   /** Re-fetches /auth/me — used after verify-email or resend-verification
    * so `user.emailVerified` updates without a full page reload. */
@@ -44,6 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const profile = await api.get<UserProfile>('/auth/me');
       setUser(profile);
       setSession({ userId: profile.id });
+      // Keep the stored timezone current: fills it in for accounts created
+      // before it was recorded, and follows someone who moves or travels.
+      // Best-effort; reminders fall back to the server default without it.
+      const tz = browserTimeZone();
+      if (tz && tz !== profile.timezone) {
+        api.patch<UserProfile>('/auth/me', { timezone: tz }).then(setUser).catch(() => {});
+      }
     } catch {
       setUser(null);
       setSession(null);
@@ -62,12 +81,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchProfile]);
 
   const register = useCallback(async (email: string, password: string, displayName?: string) => {
-    await api.post('/auth/register', { email, password, displayName }, { auth: false });
+    await api.post('/auth/register', { email, password, displayName, timezone: browserTimeZone() }, { auth: false });
     await fetchProfile();
   }, [fetchProfile]);
 
   const loginWithGoogle = useCallback(async (idToken: string) => {
-    await api.post('/auth/google', { idToken }, { auth: false });
+    await api.post('/auth/google', { idToken, timezone: browserTimeZone() }, { auth: false });
     await fetchProfile();
   }, [fetchProfile]);
 
@@ -86,6 +105,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
+  /** Ends every session on every device, this one included. */
+  const logoutAll = useCallback(async () => {
+    await api.post('/auth/logout-all');
+    clearStoredSession();
+    setUser(null);
+    setSession(null);
+  }, []);
+
   const updateDisplayName = useCallback(async (displayName: string) => {
     const profile = await api.patch<UserProfile>('/auth/me', { displayName });
     setUser(profile);
@@ -93,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      session, user, loading, login, register, loginWithGoogle, logout,
+      session, user, loading, login, register, loginWithGoogle, logout, logoutAll,
       updateDisplayName, refreshProfile: fetchProfile,
     }}>
       {children}

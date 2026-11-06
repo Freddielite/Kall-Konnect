@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import plugin from "tailwindcss/plugin";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
@@ -126,7 +127,7 @@ export default {
     },
   },
   plugins: [
-    require("tailwindcss-animate"),
+    tailwindcssAnimate,
     // Touch browsers fake a `:hover` state on tap and don't clear it until
     // the user taps elsewhere, so ghost/icon buttons (e.g. the notification
     // bell, the refresh button) were getting stuck highlighted after a tap.

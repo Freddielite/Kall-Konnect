@@ -53,7 +53,7 @@ try {
 }
 
 if (purgeFor) {
-  const { rows: users } = await query('SELECT id FROM users WHERE email = $1', [purgeFor]);
+  const { rows: users } = await query('SELECT id FROM users WHERE lower(email) = lower($1)', [purgeFor.trim()]);
   if (!users[0]) {
     bad(`No user with email ${purgeFor}`);
   } else {

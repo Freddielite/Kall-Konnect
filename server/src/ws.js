@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws';
-import { verifyAccessToken } from './lib/tokens.js';
+import { verifyAccessToken, isSessionCurrent } from './lib/tokens.js';
 import { ACCESS_COOKIE } from './lib/cookies.js';
 
 const userSockets = new Map(); // userId -> Set<WebSocket>
@@ -37,7 +37,16 @@ export function attachWebSocketServer(httpServer) {
     const cookies = parseCookieHeader(req.headers.cookie);
     const query = new URL(req.url, 'http://localhost').searchParams;
     const token = cookies[ACCESS_COOKIE] ?? query.get('access_token') ?? undefined;
-    const userId = token ? await verifyAccessToken(token) : null;
+    // try/catch: this is an async event handler outside Express, so a
+    // thrown DB error here would be an unhandled rejection and kill the
+    // process (see lib/asyncErrors.js for the HTTP side of this).
+    let userId = null;
+    try {
+      const claims = token ? await verifyAccessToken(token) : null;
+      if (claims && (await isSessionCurrent(claims))) userId = claims.userId;
+    } catch (err) {
+      console.error('[ws] auth check failed:', err.message);
+    }
     if (!userId) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
@@ -69,4 +78,11 @@ export function broadcastToUser(userId, event) {
   for (const ws of sockets) {
     if (ws.readyState === ws.OPEN) ws.send(payload);
   }
+}
+
+/** Closes every open socket for a user — called by "sign out everywhere"
+ * so a revoked session stops receiving live updates at once. */
+export function disconnectUser(userId) {
+  for (const ws of userSockets.get(userId) ?? []) ws.close(4001, 'Signed out');
+  userSockets.delete(userId);
 }

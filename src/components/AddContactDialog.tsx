@@ -287,7 +287,7 @@ export function AddContactDialog({ open, onOpenChange, onAddContact, contact, on
 
           <div className="space-y-2">
             <Label htmlFor="relationship">Relationship</Label>
-            <Select value={relationship} onValueChange={(value: any) => setRelationship(value)}>
+            <Select value={relationship} onValueChange={(value) => setRelationship(value as 'family' | 'friend' | 'colleague' | 'acquaintance')}>
               <SelectTrigger id="relationship">
                 <SelectValue />
               </SelectTrigger>
@@ -302,7 +302,7 @@ export function AddContactDialog({ open, onOpenChange, onAddContact, contact, on
 
           <div className="space-y-2">
             <Label htmlFor="frequency">Call Frequency</Label>
-            <Select value={callFrequency} onValueChange={(value: any) => setCallFrequency(value)}>
+            <Select value={callFrequency} onValueChange={(value) => setCallFrequency(value as 'weekly' | 'biweekly' | 'monthly')}>
               <SelectTrigger id="frequency">
                 <SelectValue />
               </SelectTrigger>

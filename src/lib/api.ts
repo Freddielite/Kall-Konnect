@@ -389,8 +389,33 @@ async function request<T>(path: string, { method = 'GET', body, auth = true }: R
   return data as T;
 }
 
+/** One page of a cursor-paginated list endpoint (GET /contacts, /call-notes). */
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+/** Fetches every page of a paginated endpoint, in order. Lists are capped
+ * at 500 per request server-side; this keeps a 2,000-contact account
+ * working without the screen code knowing pages exist. */
+async function getAll<T>(path: string, pageSize = 500): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  const sep = path.includes('?') ? '&' : '?';
+  // Hard stop well past any real account, so a server bug can't loop forever.
+  for (let page = 0; page < 200; page++) {
+    const url = `${path}${sep}limit=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const res: Page<T> = await request<Page<T>>(url);
+    items.push(...res.items);
+    if (!res.nextCursor) break;
+    cursor = res.nextCursor;
+  }
+  return items;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  getAll,
   post: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>(path, { method: 'POST', body, ...opts }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),

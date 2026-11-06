@@ -5,8 +5,11 @@ import { buildReminderIcs } from '../lib/ics.js';
 import { getValidAccessToken, upsertCalendarEvent } from '../lib/googleCalendar.js';
 import { broadcastToUser } from '../ws.js';
 import {
-  chooseScenario, daysBetween, isCategoryEnabled, isRoutineDue, thresholdDaysFor,
+  calendarDaysBetween, chooseScenario, daysBetween, hasReminderTimePassed, isCategoryEnabled,
+  isRoutineDue, localDateKey, thresholdDaysFor, wallClock,
 } from './reminderRules.js';
+import { env } from '../env.js';
+import { isValidTimeZone } from '../lib/validate.js';
 import { buildReminder, greetingName, toneForContact } from './reminderCopy.js';
 import {
   buildFollowUpVocabulary,
@@ -42,22 +45,53 @@ const OCCASION_REPEAT_GUARD_DAYS = 2;
  * push, no email and no broadcast — it just reports what a real run would
  * do. Used by `npm run notifications-doctor`, because the only other way to
  * exercise this job is to wait for the 06:00 cron. */
-export async function generateNotifications({ dryRun = false } = {}) {
+/** Timezone for users who haven't opened the app since migration 013
+ * (no stored timezone): CRON_TIMEZONE, i.e. exactly the old behaviour. */
+function fallbackTimeZone() {
+  return isValidTimeZone(env.cronTimezone) ? env.cronTimezone : 'UTC';
+}
+
+/**
+ * Runs every 15 minutes (jobs/cron.js). Each run picks up the users whose
+ * local clock has reached their reminder time and who haven't been
+ * processed yet on their local date, so everyone hears from us once a day
+ * at their own time, wherever they are.
+ *
+ * `ignoreReminderTime` (doctor script, manual runs) skips both the time and
+ * the processed-today gates; the per-scenario guards still prevent repeats.
+ */
+export async function generateNotifications({ dryRun = false, now = new Date(), ignoreReminderTime = false } = {}) {
+  // notification_categories and quiet_day_nudges were missing from this
+  // SELECT, so both read as undefined and every category toggle and the
+  // quiet-day switch in Settings were silently ignored.
   const { rows: preferences } = await query(
     `SELECT p.user_id, p.notification_frequency, p.inactivity_days, p.auto_add_calendar_reminders,
-            u.email, u.display_name
+            p.notification_categories, p.quiet_day_nudges, p.preferred_call_time, p.reminder_time,
+            to_char(p.reminders_processed_on, 'YYYY-MM-DD') AS reminders_processed_on,
+            u.email, u.display_name, u.timezone
      FROM user_preferences p JOIN users u ON u.id = p.user_id
      WHERE p.notifications_enabled = true`
   );
 
   if (preferences.length === 0) return { created: 0, plan: [] };
 
-  const now = new Date();
-  const today = dayKey(now);
   let totalCreated = 0;
   const plan = [];
 
   for (const pref of preferences) {
+    const timeZone = isValidTimeZone(pref.timezone) ? pref.timezone : fallbackTimeZone();
+    const localToday = localDateKey(now, timeZone);
+    if (!ignoreReminderTime) {
+      if (pref.reminders_processed_on === localToday) continue;
+      if (!hasReminderTimePassed({
+        now, timeZone, preferredCallTime: pref.preferred_call_time, reminderTime: pref.reminder_time,
+      })) continue;
+    }
+    // The user's wall clock, for every "today"/"this year" calculation
+    // below (occasions, streaks, the copy's day key). See wallClock().
+    const localNow = wallClock(now, timeZone);
+    const today = dayKey(localNow);
+
     // Snoozed contacts are excluded here. `snoozed_until` was already
     // respected by the Dashboard and by mcpTools.js, but not by this job —
     // so snoozing via RescheduleDialog silenced a contact in the UI while
@@ -75,10 +109,14 @@ export async function generateNotifications({ dryRun = false } = {}) {
                 AS last_occasion_at
          FROM contacts c
         WHERE c.user_id = $1
+          AND c.deleted_at IS NULL
           AND (c.snoozed_until IS NULL OR c.snoozed_until <= now())`,
       [pref.user_id]
     );
-    if (contacts.length === 0) continue;
+    if (contacts.length === 0) {
+      if (!dryRun && !ignoreReminderTime) await markProcessed(pref.user_id, localToday);
+      continue;
+    }
 
     // Everything below is per-user context the copy layer can draw on.
     const { rows: notes } = await query(
@@ -119,10 +157,11 @@ export async function generateNotifications({ dryRun = false } = {}) {
       lastRoutineAt: lastRoutine[0]?.at,
       notificationFrequency: pref.notification_frequency,
       now,
+      timeZone,
     });
 
     const vocabulary = buildFollowUpVocabulary(notesByContact);
-    const streak = computeCallStreak(notes.map((n) => n.created_at), now);
+    const streak = computeCallStreak(notes.map((n) => wallClock(n.created_at, timeZone)), localNow);
     const userName = greetingName({ displayName: pref.display_name, email: pref.email });
 
     const toCreate = [];
@@ -143,7 +182,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
       const lastNote = contactNotes[contactNotes.length - 1];
       const followUpMatched = matchFollowUpSignal(lastNote?.content, vocabulary);
 
-      const occasion = upcomingOccasionFor(contact, specialByContact.get(contact.id) ?? [], now);
+      const occasion = upcomingOccasionFor(contact, specialByContact.get(contact.id) ?? [], localNow);
 
       // Occasions are time-critical and unrepeatable, so they bypass both
       // the rotation and the one-a-day cap. Their own guard stops repeats:
@@ -154,7 +193,7 @@ export async function generateNotifications({ dryRun = false } = {}) {
       if (occasion) {
         const repeated =
           contact.last_occasion_at &&
-          daysBetween(new Date(contact.last_occasion_at), now) < OCCASION_REPEAT_GUARD_DAYS;
+          calendarDaysBetween(contact.last_occasion_at, now, timeZone) < OCCASION_REPEAT_GUARD_DAYS;
         if (!repeated) {
           toCreate.push({
             ...buildReminder('occasion', {
@@ -334,7 +373,15 @@ export async function generateNotifications({ dryRun = false } = {}) {
     if (toCreate.length > 0) broadcastToUser(pref.user_id, { type: 'notifications' });
 
     totalCreated += toCreate.length;
+    if (!ignoreReminderTime) await markProcessed(pref.user_id, localToday);
   }
 
   return { created: totalCreated, plan };
+}
+
+/** Records that today's run is done for this user (their local date).
+ * Written last, so a run that dies halfway is retried 15 minutes later;
+ * the per-scenario guards above keep that retry from double-sending. */
+async function markProcessed(userId, localDate) {
+  await query('UPDATE user_preferences SET reminders_processed_on = $2 WHERE user_id = $1', [userId, localDate]);
 }

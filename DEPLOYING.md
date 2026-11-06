@@ -72,8 +72,8 @@ move to a custom domain. Treat it as temporary.
 
 > **Already keeping the instance awake with a pinger?** Then `node-cron` does
 > fire and this section is optional. Two things still apply: set
-> `CRON_TIMEZONE` (see §6) or reminders go out at 07:00 WAT rather than 06:00,
-> and consider keeping the external trigger anyway — a pinger is a silent
+> `CRON_TIMEZONE` (see §6) as the fallback for users whose timezone isn't
+> known yet, and consider keeping the external trigger anyway — a pinger is a silent
 > single point of failure, and if it stops, notifications stop with nothing
 > logging an error. The job is idempotent for the day, so running it from
 > both places never double-sends.
@@ -148,10 +148,11 @@ obvious from the run log.
 A 503 means `CRON_SECRET` isn't set on the server. The server also prints a
 warning at startup when `NODE_ENV=production` and no `CRON_SECRET` is set.
 
-**Note on timezone.** GitHub's `cron:` is always UTC, so use `0 5 * * *` for
-06:00 WAT. The in-process job now takes `CRON_TIMEZONE` instead — set it to
-`Africa/Lagos` and leave `CRON_SCHEDULE` at `0 6 * * *`. Per-user reminder
-times still aren't supported; this is one global time for everyone.
+**Note on timezone.** Each user is reminded at their own local time, from the
+timezone their browser reports. The server checks every 15 minutes; the
+GitHub workflow runs hourly to wake a sleeping instance. `CRON_SCHEDULE` is
+no longer read (the server warns if it's still set); `CRON_TIMEZONE` is only
+the fallback for users whose timezone isn't known yet.
 
 ---
 
@@ -210,17 +211,19 @@ that matters:
 
 ---
 
-## 5. Run migrations once
+## 5. Migrations
 
-Nothing runs them automatically. After the database exists, from a Render
-shell or locally with `DATABASE_URL` pointed at Render:
+They run automatically on every server start; the server refuses to start
+if one fails. To run them by hand: `npm run migrate`.
 
-```bash
-npm run migrate
-```
+Every migration has a matching `NNN_name.down.sql`. To undo the most recent
+one: `npm run migrate:down` (or `-- --steps 3`). The two that would drop all
+user data (001, 002) also need `--allow-data-loss`, and 006/007 refuse to
+roll back while notifications of the newer types exist rather than delete
+them. **A rollback restores schema, not data:** for lost rows you need a
+backup (see §9). CI rolls every migration back and forward on each push.
 
-Check `server/migrations/` — `001_init.sql`, `002_push_subscriptions.sql`,
-`003_auth_hardening.sql`. Ignore `supabase-cutover.sql`, it's historical.
+Ignore `supabase-cutover.sql`, it's historical.
 
 ---
 
@@ -231,6 +234,7 @@ Check `server/migrations/` — `001_init.sql`, `002_push_subscriptions.sql`,
 | Variable         | Value                                        |
 | ---------------- | -------------------------------------------- |
 | `NODE_ENV`       | `production`                                 |
+| `CRON_TIMEZONE`  | `Africa/Lagos` (fallback only, see §1b)      |
 | `DATABASE_URL`   | Render's internal Postgres URL               |
 | `JWT_SECRET`     | long random string — **not** the dev one     |
 | `COOKIE_SECURE`  | `true`                                       |
@@ -327,3 +331,32 @@ about cookie problems:
 [config] env=production trustProxy=1 cookies=SameSite:lax/Secure:true/Domain:.wyntek.tech
 [config] CORS allows: https://app.wyntek.tech
 ```
+
+---
+
+## 9. Releasing the November 2026 hardening changes
+
+See the top entry in HANDOVER.md for what changed. In order:
+
+1. **Back up the database first.** Render dashboard > Postgres > Backups >
+   create one now, and note its time. Migrations 012–015 run automatically on
+   the next boot.
+2. **Deploy server and frontend together.** `GET /contacts` and
+   `GET /call-notes` now return `{ items, nextCursor }` pages, not arrays.
+   An old frontend against the new server shows an empty contact list.
+   Deploy the server, then the frontend straight after.
+3. **Remove `CRON_SCHEDULE`** from Render's environment and set
+   `CRON_TIMEZONE=Africa/Lagos`.
+4. **Check for duplicate accounts:** `npm run email-conflicts` (Render shell).
+   Each group is one person with two accounts that differ only in letter
+   case. Both keep working until merged. For each, keep the one with the
+   recent sign-in: `npm run merge-accounts -- --keep <id> --remove <id>`
+   previews; add `--yes` to merge.
+5. **Tell users** reminders now arrive at the start of their "Preferred Call
+   Time" window. That defaulted to "evening", so most people's reminder moves
+   from about 07:00 to 17:00 unless they pick another window in Settings.
+6. **Protect `main`** so CI is a real gate: GitHub > Settings > Branches >
+   require the `frontend` and `server` checks.
+7. **Nobody is signed out by the deploy.** Access tokens issued before it
+   carry no session version and count as version 0, which is every user's
+   starting version, so existing sessions keep working.

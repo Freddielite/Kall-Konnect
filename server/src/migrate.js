@@ -23,7 +23,9 @@ export async function runMigrations() {
   `);
 
   const files = fs.readdirSync(migrationsDir)
-    .filter((f) => /^\d+.*\.sql$/.test(f)) // e.g. 001_init.sql — excludes supabase-cutover.sql on purpose
+    // e.g. 001_init.sql. Excludes supabase-cutover.sql on purpose, and the
+    // NNN_name.down.sql rollback files, which only `migrate:down` runs.
+    .filter((f) => /^\d+.*\.sql$/.test(f) && !f.endsWith('.down.sql'))
     .sort();
   const { rows: applied } = await pool.query('SELECT filename FROM schema_migrations');
   const appliedSet = new Set(applied.map((r) => r.filename));
@@ -57,12 +59,64 @@ export async function runMigrations() {
 
 // CLI entrypoint (`npm run migrate`) - still works standalone for local use
 // or a manual run, on top of the automatic run in index.js on every boot.
+/** Down migrations that drop user data wholesale. Running one needs
+ * --allow-data-loss, so a mistyped --steps can't wipe production. */
+const DATA_LOSS_DOWNS = new Set(['001_init.down.sql', '002_push_subscriptions.down.sql']);
+
+/**
+ * Rolls back the most recently applied migrations, newest first, using
+ * each one's NNN_name.down.sql. Each step runs in its own transaction and
+ * stops at the first failure, leaving the database at the last good step.
+ * A migration with no down file cannot be rolled back past.
+ */
+export async function rollbackMigrations({ steps = 1, allowDataLoss = false } = {}) {
+  const { rows } = await pool.query(
+    'SELECT filename FROM schema_migrations ORDER BY filename DESC LIMIT $1',
+    [steps]
+  );
+  if (rows.length === 0) {
+    console.log('[migrate:down] nothing applied, nothing to roll back.');
+    return;
+  }
+  for (const { filename } of rows) {
+    const downFile = filename.replace(/\.sql$/, '.down.sql');
+    const downPath = path.join(migrationsDir, downFile);
+    if (!fs.existsSync(downPath)) throw new Error(`No ${downFile}; cannot roll back ${filename}.`);
+    if (DATA_LOSS_DOWNS.has(downFile) && !allowDataLoss) {
+      throw new Error(`${downFile} destroys data. Re-run with --allow-data-loss if you really mean it.`);
+    }
+    console.log(`[migrate:down] reverting ${filename}`);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(fs.readFileSync(downPath, 'utf8'));
+      await client.query('DELETE FROM schema_migrations WHERE filename = $1', [filename]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  console.log(`[migrate:down] reverted ${rows.length} migration${rows.length === 1 ? '' : 's'}.`);
+}
+
+// CLI entrypoints: `npm run migrate` and `npm run migrate:down [-- --steps N]`.
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
-  runMigrations()
+  const args = process.argv.slice(2);
+  const stepsArg = args.indexOf('--steps');
+  const task = args.includes('down')
+    ? rollbackMigrations({
+        steps: stepsArg >= 0 ? Math.max(1, parseInt(args[stepsArg + 1], 10) || 1) : 1,
+        allowDataLoss: args.includes('--allow-data-loss'),
+      })
+    : runMigrations();
+  task
     .then(() => pool.end())
     .catch((err) => {
-      console.error('Migration failed:', err);
+      console.error('Migration failed:', err.message || err);
       process.exit(1);
     });
 }

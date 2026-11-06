@@ -19,6 +19,10 @@ export async function verifyGoogleIdToken(idToken) {
   return {
     sub: payload.sub,
     email: payload.email,
+    // Google only vouches for the address when this is true. Without the
+    // check, someone could create a Google account claiming a victim's
+    // email (without verifying it) and sign straight into their account.
+    emailVerified: payload.email_verified === true || payload.email_verified === 'true',
     name: payload.name ?? payload.email,
   };
 }

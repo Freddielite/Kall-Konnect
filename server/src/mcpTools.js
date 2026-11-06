@@ -1,4 +1,7 @@
 import { query } from './db.js';
+import { pick, int, str, oneOf, bool, dateOnly, optional, CONTACT_FIELDS, RELATIONSHIPS, CALL_FREQUENCIES } from './lib/validate.js';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const FREQUENCY_DAYS = { weekly: 7, biweekly: 14, monthly: 30 };
 
@@ -19,9 +22,10 @@ export const tools = {
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    handler: async ({ limit }, userId) => {
+    handler: async (args, userId) => {
+      const { limit } = pick(args, { limit: optional(int({ min: 1, max: 20 }), 5) });
       const { rows } = await query(
-        'SELECT id, name, relationship, call_frequency, priority, is_favorite, last_called, snoozed_until FROM contacts WHERE user_id = $1',
+        'SELECT id, name, relationship, call_frequency, priority, is_favorite, last_called, snoozed_until FROM contacts WHERE user_id = $1 AND deleted_at IS NULL',
         [userId]
       );
       const now = Date.now();
@@ -38,7 +42,7 @@ export const tools = {
           };
         })
         .sort((a, b) => b.overdueByDays - a.overdueByDays)
-        .slice(0, limit ?? 5);
+        .slice(0, limit);
       return textResult(suggestions, 'suggestions');
     },
   },
@@ -56,12 +60,17 @@ export const tools = {
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    handler: async ({ relationship, favoritesOnly, limit }, userId) => {
-      const conditions = ['user_id = $1'];
+    handler: async (args, userId) => {
+      const { relationship, favoritesOnly, limit } = pick(args, {
+        relationship: optional(oneOf(RELATIONSHIPS), undefined),
+        favoritesOnly: optional(bool(), false),
+        limit: optional(int({ min: 1, max: 200 }), 50),
+      });
+      const conditions = ['user_id = $1', 'deleted_at IS NULL'];
       const params = [userId];
       if (relationship) { params.push(relationship); conditions.push(`relationship = $${params.length}`); }
       if (favoritesOnly) conditions.push('is_favorite = true');
-      params.push(limit ?? 50);
+      params.push(limit);
 
       const { rows } = await query(
         `SELECT id, name, phone, instagram_username, snapchat_username, relationship, call_frequency,
@@ -92,7 +101,17 @@ export const tools = {
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    handler: async (args, userId) => {
+    handler: async (rawArgs, userId) => {
+      const args = pick(rawArgs, {
+        name: CONTACT_FIELDS.name,
+        phone: optional(CONTACT_FIELDS.phone, null),
+        instagramUsername: optional(CONTACT_FIELDS.instagram_username, null),
+        snapchatUsername: optional(CONTACT_FIELDS.snapchat_username, null),
+        relationship: CONTACT_FIELDS.relationship,
+        callFrequency: optional(oneOf(CALL_FREQUENCIES), 'weekly'),
+        isFavorite: optional(bool(), false),
+        birthday: optional(dateOnly(), null),
+      });
       const { rows } = await query(
         `INSERT INTO contacts (user_id, name, phone, instagram_username, snapchat_username, relationship, call_frequency, is_favorite, birthday, platforms, priority)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -121,16 +140,25 @@ export const tools = {
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    handler: async ({ contactId, note, durationMinutes }, userId) => {
-      const owns = await query('SELECT 1 FROM contacts WHERE id = $1 AND user_id = $2', [contactId, userId]);
+    handler: async (args, userId) => {
+      const { contactId, note, durationMinutes } = pick(args, {
+        contactId: str({ min: 1, max: 64 }),
+        note: str({ min: 1, max: 5000 }),
+        durationMinutes: optional(int({ min: 0, max: 600 }), null),
+      });
+      if (!UUID.test(contactId)) return errorResult('Contact not found');
+      const owns = await query(
+        'SELECT 1 FROM contacts WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+        [contactId, userId]
+      );
       if (owns.rowCount === 0) return errorResult('Contact not found');
 
       const { rows } = await query(
         `INSERT INTO call_notes (contact_id, user_id, content, duration)
          VALUES ($1,$2,$3,$4) RETURNING id, contact_id, content, duration, created_at`,
-        [contactId, userId, note, durationMinutes ?? null]
+        [contactId, userId, note, durationMinutes]
       );
-      await query('UPDATE contacts SET last_called = now() WHERE id = $1', [contactId]);
+      await query('UPDATE contacts SET last_called = now() WHERE id = $1 AND user_id = $2', [contactId, userId]);
       return textResult(rows[0] ?? null, 'callNote');
     },
   },
@@ -147,11 +175,20 @@ export const tools = {
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    handler: async ({ contactId, limit }, userId) => {
-      const conditions = ['user_id = $1'];
+    handler: async (args, userId) => {
+      const { contactId, limit } = pick(args, {
+        contactId: optional(str({ min: 1, max: 64 }), undefined),
+        limit: optional(int({ min: 1, max: 100 }), 20),
+      });
+      if (contactId && !UUID.test(contactId)) return errorResult('Contact not found');
+      // Notes of a deleted contact stay hidden until it's restored or purged.
+      const conditions = [
+        'user_id = $1',
+        'contact_id IN (SELECT id FROM contacts WHERE user_id = $1 AND deleted_at IS NULL)',
+      ];
       const params = [userId];
       if (contactId) { params.push(contactId); conditions.push(`contact_id = $${params.length}`); }
-      params.push(limit ?? 20);
+      params.push(limit);
 
       const { rows } = await query(
         `SELECT id, contact_id, content, duration, created_at FROM call_notes

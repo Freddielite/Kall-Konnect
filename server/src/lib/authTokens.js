@@ -22,20 +22,26 @@ export async function issueAuthToken(userId, purpose) {
 }
 
 /**
- * Validates and consumes a one-time token. Returns the userId on success,
- * or null if it's missing/expired/already used/wrong purpose. Consuming
- * marks it used so it can't be replayed.
+ * Validates and consumes a one-time token in a single statement, so two
+ * simultaneous clicks on the same reset link can't both succeed. Returns
+ * the userId, or null if missing/expired/already used/wrong purpose.
  */
 export async function consumeAuthToken(raw, purpose) {
-  if (!raw) return null;
-  const hash = hashToken(raw);
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 200) return null;
   const { rows } = await query(
-    `SELECT id, user_id, expires_at, used_at FROM auth_tokens WHERE token_hash = $1 AND purpose = $2`,
-    [hash, purpose]
+    `UPDATE auth_tokens SET used_at = now()
+      WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
+      RETURNING user_id`,
+    [hashToken(raw), purpose]
   );
-  const row = rows[0];
-  if (!row || row.used_at || new Date(row.expires_at) < new Date()) return null;
+  return rows[0]?.user_id ?? null;
+}
 
-  await query('UPDATE auth_tokens SET used_at = now() WHERE id = $1', [row.id]);
-  return row.user_id;
+/** Invalidates every unused token of a purpose for a user, e.g. all
+ * outstanding reset links once the password has been changed. */
+export async function invalidateAuthTokens(userId, purpose) {
+  await query(
+    'UPDATE auth_tokens SET used_at = now() WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL',
+    [userId, purpose]
+  );
 }

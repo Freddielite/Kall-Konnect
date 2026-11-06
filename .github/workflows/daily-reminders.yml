@@ -16,12 +16,19 @@
 # GitHub's scheduler is best-effort and can lag by several minutes under load.
 # That's fine for a daily reminder; it is not a precise alarm clock.
 
-name: Daily reminders
+name: Reminders
 
 on:
   schedule:
-    # 05:00 UTC = 06:00 WAT (Nigeria, UTC+1). GitHub cron is always UTC.
-    - cron: '0 5 * * *'
+    # Hourly. Each user is now reminded at their own local time (see
+    # server/src/jobs/cron.js), so a once-a-day trigger would only reach the
+    # users whose reminder time had already passed at that moment. The
+    # server's own 15-minute schedule covers the gaps whenever the instance
+    # is awake; this wakes it at least once an hour. The job skips users
+    # already reminded today, so extra triggers can't double-send.
+    # Hourly is ~720 Actions minutes a month: inside the free 2,000 for a
+    # private repo. Every 15 minutes would not be.
+    - cron: '5 * * * *'
   workflow_dispatch: # lets you run it by hand from the Actions tab
 
 jobs:

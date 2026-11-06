@@ -215,9 +215,11 @@ export default function Auth() {
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
                     required
-                    minLength={6}
+                    minLength={8}
+                    aria-describedby="signup-password-hint"
                   />
                 </div>
+                <p id="signup-password-hint" className="text-xs text-muted-foreground">At least 8 characters.</p>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>

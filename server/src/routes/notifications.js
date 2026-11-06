@@ -9,6 +9,9 @@ notificationsRouter.get('/notifications', async (req, res) => {
     `SELECT id, contact_id, title, message, type, scheduled_for, sent_at, read_at, created_at
      FROM notifications
      WHERE user_id = $1 AND scheduled_for <= now()
+       -- Reminders about a contact in the trash stay hidden until it's restored.
+       AND (contact_id IS NULL OR contact_id NOT IN (
+             SELECT id FROM contacts WHERE user_id = $1 AND deleted_at IS NOT NULL))
      ORDER BY scheduled_for DESC
      LIMIT 20`,
     [req.userId]

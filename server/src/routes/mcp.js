@@ -1,3 +1,4 @@
+import { ValidationError } from '../lib/validate.js';
 import { Router } from 'express';
 import { requireOAuthToken } from '../middleware/requireOAuthToken.js';
 import { tools, toolManifest } from '../mcpTools.js';
@@ -41,15 +42,26 @@ mcpRouter.post('/mcp', requireOAuthToken, async (req, res) => {
     }
 
     if (method === 'tools/call') {
-      const tool = tools[params?.name];
-      if (!tool) return replyError(-32602, `Unknown tool: ${params?.name}`);
-      const result = await tool.handler(params?.arguments ?? {}, req.userId);
-      return reply(result);
+      const name = params?.name;
+      const tool = typeof name === 'string' && Object.hasOwn(tools, name) ? tools[name] : null;
+      if (!tool) return replyError(-32602, `Unknown tool: ${name}`);
+      const args = params?.arguments ?? {};
+      try {
+        return reply(await tool.handler(args, req.userId));
+      } catch (err) {
+        // Bad arguments go back to the model as a tool error it can read
+        // and correct, per MCP convention, rather than a protocol error.
+        if (err instanceof ValidationError) {
+          return reply({ content: [{ type: 'text', text: err.message }], isError: true });
+        }
+        throw err;
+      }
     }
 
     return replyError(-32601, `Unknown method: ${method}`);
   } catch (err) {
     console.error('MCP tool call failed:', err);
-    return replyError(-32000, err.message ?? 'Internal error');
+    // Never err.message: for a database error that's schema detail.
+    return replyError(-32000, 'Internal error');
   }
 });

@@ -78,11 +78,11 @@ export const env = {
   // permanent 401 that looks exactly like "reminders just stopped".
   cronSecret: clean(process.env.CRON_SECRET) ?? '',
 
-  // When the daily reminder runs, and in which timezone. Server time is UTC
-  // on Render, so the default reaches a Nigerian user (WAT, UTC+1) at 07:00.
-  // Set CRON_TIMEZONE=Africa/Lagos for 06:00 local. This is a single global
-  // time for all users — per-user reminder_time still isn't supported.
-  cronSchedule: process.env.CRON_SCHEDULE ?? '0 6 * * *',
+  // Reminders go out at each user's own local reminder time (users.timezone,
+  // captured from their browser), checked every 15 minutes — see
+  // jobs/cron.js. CRON_TIMEZONE is now only the fallback for users whose
+  // timezone isn't known yet (they haven't opened the app since migration
+  // 013). Set it to where most users are, e.g. Africa/Lagos.
   cronTimezone: process.env.CRON_TIMEZONE ?? '',
   // Re-run shortly after boot in case a restart straddled the scheduled
   // minute. A no-op if today's reminder already went out.
