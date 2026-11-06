@@ -4,6 +4,107 @@ Living session log for kall-konnect-mvp. Newest entries on top.
 
 ---
 
+## 2026-11-07 — The reminder → call → log loop
+
+Seven changes, all aimed at the app's core loop: a reminder arrives, you call
+someone, the call gets logged so the next reminder is smarter. Migration 016.
+Release notes at the bottom of this entry.
+
+### 1. Reminders you can act on from the lock screen
+
+Tapping a reminder opens that person's page (`/contacts/:id`), not the
+Dashboard. Reminders about a person carry two buttons:
+
+- **Call now** opens their page with a one-tap call sheet
+  (`CallNowDialog`). A page can't dial without a tap, so this is as close
+  to "call from the lock screen" as the web allows.
+- **Remind me tomorrow** works without opening the app: the service worker
+  POSTs a signed, single-notification, 7-day token URL
+  (`lib/actionTokens.js`, `POST /notifications/:id/snooze`). It sets
+  `contacts.remind_next_on` to the user's local tomorrow, and the job makes
+  that contact tomorrow's pick ahead of the rotation, cadence and category
+  settings. Needs `PUBLIC_API_URL`; without it, or if the request fails,
+  the button opens the app, which does the same thing.
+
+### 2. Logging a call is one tap, from anywhere
+
+The "How was your call?" prompt moved from the Dashboard into an app-wide
+provider (`src/lib/post-call.tsx`). Before, calls from the Contacts list or
+a contact's page were never prompted, the pending call lived in React state
+(lost when Android killed the app mid-call), and a note was mandatory. Now:
+every call button reports through `startCall`; the pending call is kept in
+localStorage and picked up on next launch; "Log call" works with no note
+(`content` may be empty; screens show "Call logged, no notes"). Leaving the
+app counts as the call starting only within 60s of tapping, so a cancelled
+dial can't produce a prompt later. The server now updates
+`contacts.last_called` itself when a call is logged (never backwards).
+
+### 3. Evening streak nudge
+
+`jobs/streakRisk.js`: at 19:00 local, a user who called someone on each of
+the last 2+ days and nobody yet today gets "Keep your N-day streak going".
+Once an evening (`streak_risk_sent_on`), own Settings toggle (category
+`streak_risk`), counted on `called_at` so backdated calls count.
+
+### 4. Measuring whether reminders work
+
+`notifications.opened_at` (set when the app opens from a reminder's link,
+`?kkn=<id>`) and `acted_at` (a call to that person, or any call for a
+user-level nudge, logged within 48h). `npm run reminder-report` shows open
+and call-through rates per reminder type and how many users turned each
+kind off. Now the tuning questions in NEXT UP #6 can be answered with data.
+
+### 5. Download my data, delete my account
+
+Settings > Your Data. `GET /account/export` returns everything except
+secrets as one JSON file. `DELETE /account` needs the password (or, for a
+Google-only account, the typed email), deletes every row via cascade, and
+revokes the Google Calendar grant at Google. Disconnecting Calendar now
+revokes too; before, it only forgot the token.
+
+### 6. Monitoring
+
+- `GET /health/reminders`: 503 if reminders haven't succeeded in 2 hours
+  (from `job_heartbeats`). For an external uptime monitor.
+- `ERROR_WEBHOOK_URL` (Slack/Discord): 5xx errors, failed reminder runs and
+  browser errors (`src/lib/errorReporting.ts` → `POST /client-errors`).
+  Throttled: once per problem per 15 min, 20/hour (`lib/alerts.js`).
+- Backup-restore drill and setup steps: DEPLOYING.md §10.
+
+### 7. Onboarding
+
+`/welcome`, for new accounts with no contacts and no `onboarded_at`:
+add people (import or one by one) → star up to 5 and set frequencies →
+pick a call time → turn on reminders. Each step skippable; finishing or
+skipping sets `onboarded_at`. Migration 016 marks every existing user
+onboarded, so nobody already using the app sees it.
+
+### Also fixed
+
+- Adding a contact showed two "added" toasts (one before the save even
+  happened). Importing N contacts showed N toasts; now one summary.
+
+### Release notes
+
+1. Back up, then deploy server and frontend together (migration 016).
+2. Set `PUBLIC_API_URL` (this backend's URL) and, ideally,
+   `ERROR_WEBHOOK_URL`. Add the uptime monitor (DEPLOYING.md §10).
+3. Lock-screen buttons appear on reminders sent after the deploy; existing
+   push subscriptions keep working (the service worker updates itself).
+
+### Verified
+
+90 unit tests, 40 integration tests against Postgres (including the
+lock-screen snooze end to end, forged and expired tokens, the streak nudge's
+time/once/switch rules, export contents, deletion cascade, the health
+endpoint and webhook delivery and throttling). Onboarding, the call sheet,
+the post-call prompt after a simulated app restart, export and the delete
+dialog were driven in a real browser at 360px. Not testable here: real push
+delivery and the lock-screen buttons on a physical phone. Try both on
+Android and iPhone after deploying.
+
+---
+
 ## 2026-11-06 — Production hardening
 
 Started as an audit against a production-readiness checklist; everything

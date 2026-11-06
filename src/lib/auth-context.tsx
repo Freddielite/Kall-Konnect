@@ -8,6 +8,8 @@ export interface UserProfile {
   displayName: string | null;
   emailVerified: boolean;
   timezone: string | null;
+  /** False for Google-only accounts. Absent on PATCH responses. */
+  hasPassword?: boolean;
 }
 
 /** The browser's IANA timezone (e.g. "Africa/Lagos"), so reminders arrive
@@ -38,6 +40,7 @@ interface AuthContextValue {
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
+  deleteAccount: (confirm: { password?: string; email?: string }) => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<void>;
   /** Re-fetches /auth/me — used after verify-email or resend-verification
    * so `user.emailVerified` updates without a full page reload. */
@@ -61,7 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Best-effort; reminders fall back to the server default without it.
       const tz = browserTimeZone();
       if (tz && tz !== profile.timezone) {
-        api.patch<UserProfile>('/auth/me', { timezone: tz }).then(setUser).catch(() => {});
+        api.patch<UserProfile>('/auth/me', { timezone: tz })
+          .then((updated) => setUser((prev) => (prev ? { ...prev, ...updated } : updated)))
+          .catch(() => {});
       }
     } catch {
       setUser(null);
@@ -113,14 +118,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
+  /** Permanently deletes the account (see DELETE /account), then signs
+   * out locally. `confirm` is the password, or the email for accounts
+   * without one. */
+  const deleteAccount = useCallback(async (confirm: { password?: string; email?: string }) => {
+    await api.delete('/account', confirm);
+    clearStoredSession();
+    setUser(null);
+    setSession(null);
+  }, []);
+
   const updateDisplayName = useCallback(async (displayName: string) => {
     const profile = await api.patch<UserProfile>('/auth/me', { displayName });
-    setUser(profile);
+    // Merge: the PATCH response omits hasPassword.
+    setUser((prev) => (prev ? { ...prev, ...profile } : profile));
   }, []);
 
   return (
     <AuthContext.Provider value={{
-      session, user, loading, login, register, loginWithGoogle, logout, logoutAll,
+      session, user, loading, login, register, loginWithGoogle, logout, logoutAll, deleteAccount,
       updateDisplayName, refreshProfile: fetchProfile,
     }}>
       {children}

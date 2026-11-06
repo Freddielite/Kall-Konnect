@@ -174,7 +174,8 @@ contactsRouter.get('/call-notes', async (req, res) => {
 
 const CALL_NOTE_FIELDS = {
   contact_id: str({ min: 1, max: 64 }),
-  content: str({ min: 1, max: 5000 }),
+  // Optional: "we talked" is worth logging even with nothing to add.
+  content: optional(str({ max: 5000 }), ''),
   duration: optional(int({ min: 0, max: 24 * 3600, nullable: true }), null),
   // Backdated for a call logged after the fact; a few minutes of clock
   // skew between phone and server is tolerated.
@@ -192,6 +193,21 @@ contactsRouter.post('/call-notes', async (req, res) => {
      VALUES ($1, $2, $3, $4, COALESCE($5, now()))
      RETURNING id, contact_id, content, duration, called_at, created_at`,
     [contact_id, req.userId, content, duration, called_at]
+  );
+  // last_called follows the call, but never backwards: a call logged after
+  // the fact can be dated earlier than one already on record.
+  await query(
+    `UPDATE contacts SET last_called = GREATEST(COALESCE(last_called, $3::timestamptz), $3::timestamptz)
+      WHERE id = $1 AND user_id = $2`,
+    [contact_id, req.userId, rows[0].called_at]
+  );
+  // The reminder worked: mark recent reminders about this person (and
+  // user-level nudges) as acted on, for `npm run reminder-report`.
+  await query(
+    `UPDATE notifications SET acted_at = now()
+      WHERE user_id = $1 AND acted_at IS NULL AND created_at > now() - interval '48 hours'
+        AND (contact_id = $2 OR (contact_id IS NULL AND type IN ('nudge', 'streak_risk')))`,
+    [req.userId, contact_id]
   );
   broadcastToUser(req.userId, { type: 'contacts' });
   res.status(201).json(rows[0]);

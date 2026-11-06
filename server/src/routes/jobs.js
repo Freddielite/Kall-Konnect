@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { env } from '../env.js';
-import { generateNotifications } from '../jobs/generateNotifications.js';
+import { runReminderTick } from '../jobs/cron.js';
 
 export const jobsRouter = Router();
 
@@ -36,7 +36,7 @@ jobsRouter.post('/jobs/generate-notifications', async (req, res) => {
 
   try {
     const started = Date.now();
-    const { created } = await generateNotifications();
+    const { created } = await runReminderTick('external');
     const ms = Date.now() - started;
     console.log(`[jobs] generate-notifications (external): created ${created} in ${ms}ms`);
     res.json({ ok: true, created, ms });
@@ -92,7 +92,7 @@ jobsRouter.get('/jobs/tick', async (req, res) => {
 
   try {
     const started = Date.now();
-    const { created } = await generateNotifications();
+    const { created } = await runReminderTick('external');
     const ms = Date.now() - started;
     // Only log ticks that did something. At one call every five minutes this
     // would otherwise bury every other log line under 288 no-ops a day.

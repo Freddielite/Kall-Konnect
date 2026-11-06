@@ -17,6 +17,7 @@ const ICON_FOR_TYPE: Record<AppNotification['type'], typeof Clock> = {
   follow_up: MessageCircleReply,
   first_call: UserPlus,
   streak: Flame,
+  streak_risk: Flame,
   nudge: Sparkles,
 };
 

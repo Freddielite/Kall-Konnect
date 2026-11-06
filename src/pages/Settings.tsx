@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User, Trash2, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User, Trash2, ShieldCheck, CheckCircle2, Database } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,7 @@ import { SplashScreen } from '@/components/SplashScreen';
 import { motion } from 'framer-motion';
 import { usePullToRefresh, PullIndicator } from '@/components/PullToRefresh';
 import { RecentlyDeleted } from '@/components/RecentlyDeleted';
+import { YourData } from '@/components/YourData';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -43,6 +44,8 @@ const NOTIFICATION_CATEGORIES: {
     description: "People you've added but never called" },
   { key: 'streak', label: 'Streak milestones',
     description: 'When you hit a run of days keeping in touch' },
+  { key: 'streak_risk', label: 'Evening streak check',
+    description: "At 7pm, if you're on a streak and haven't called anyone yet today" },
 ];
 
 export default function Settings() {
@@ -655,6 +658,17 @@ export default function Settings() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+          </Card>
+        </div>
+
+        {/* Your data */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Database className="h-5 w-5 text-primary" />
+            Your Data
+          </h3>
+          <Card className="p-5 shadow-soft border-2">
+            <YourData />
           </Card>
         </div>
 

@@ -106,6 +106,13 @@ export function calendarDaysBetween(from, to, timeZone) {
   return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / 86_400_000);
 }
 
+/** The user's local date `days` after today's, as YYYY-MM-DD. Steps the
+ * calendar date itself, so it's right across DST changes. */
+export function localDateKeyPlusDays(date, timeZone, days) {
+  const p = partsIn(new Date(date), timeZone);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day + days)).toISOString().slice(0, 10);
+}
+
 /** The user's local date as YYYY-MM-DD. */
 export function localDateKey(date, timeZone) {
   const p = partsIn(new Date(date), timeZone);
@@ -158,8 +165,19 @@ export function isRoutineDue({ lastRoutineAt, notificationFrequency, now = new D
  * notifications.type. The quiet-day `nudge` has its own separate toggle
  * (quiet_day_nudges), so it isn't listed here. */
 export const NOTIFICATION_CATEGORIES = [
-  'planned_call', 'inactivity', 'occasion', 'follow_up', 'first_call', 'streak',
+  'planned_call', 'inactivity', 'occasion', 'follow_up', 'first_call', 'streak', 'streak_risk',
 ];
+
+/** Local time the evening streak nudge becomes due: 19:00. Late enough that
+ * a day without a call is meaningful, early enough to still act on it. */
+export const STREAK_RISK_MINUTE = 19 * 60;
+
+/** A streak is at risk in the evening when it's at least 2 days long (one
+ * day isn't a streak worth protecting) and nothing has been logged today.
+ * `streak` counts consecutive days ending yesterday when today is empty. */
+export function isStreakAtRisk({ streak, calledToday }) {
+  return !calledToday && streak >= 2;
+}
 
 /**
  * A category is enabled unless explicitly switched off. Missing keys mean

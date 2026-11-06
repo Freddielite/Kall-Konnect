@@ -9,7 +9,7 @@ import { env } from './env.js';
 import { authRouter } from './routes/auth.js';
 import { contactsRouter } from './routes/contacts.js';
 import { preferencesRouter } from './routes/preferences.js';
-import { notificationsRouter } from './routes/notifications.js';
+import { notificationsRouter, notificationActionsRouter } from './routes/notifications.js';
 import { oauthRouter } from './routes/oauth.js';
 import { googleCalendarRouter } from './routes/googleCalendar.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -19,6 +19,9 @@ import { attachWebSocketServer } from './ws.js';
 import { startCronJobs } from './jobs/cron.js';
 import { runMigrations } from './migrate.js';
 import { jobsRouter } from './routes/jobs.js';
+import { accountRouter } from './routes/account.js';
+import { healthRouter } from './routes/health.js';
+import { alert } from './lib/alerts.js';
 import { checkCookieConfig, SAME_SITE } from './lib/cookies.js';
 import { securityHeaders } from './lib/securityHeaders.js';
 
@@ -52,6 +55,7 @@ app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+app.use(healthRouter);
 
 // Public: registration/login/refresh, and the OAuth authorization server
 // (its /authorize step must be reachable without an app session — see
@@ -77,10 +81,14 @@ app.use(pushRouter);
 // Machine-authenticated (x-cron-secret), so it sits outside requireAuth.
 app.use(jobsRouter);
 
+// Signed-token actions from push notifications (lock-screen buttons).
+app.use(notificationActionsRouter);
+
 // App-session-protected: everything the frontend itself calls.
 app.use(requireAuth, contactsRouter);
 app.use(requireAuth, preferencesRouter);
 app.use(requireAuth, notificationsRouter);
+app.use(requireAuth, accountRouter);
 
 // Unmatched route — answer in JSON, because the frontend's api client
 // parses every response body as JSON and express's default 404 is HTML.
@@ -121,7 +129,12 @@ app.use((err, req, res, next) => {
   }
 
   const status = Number(err?.status) || 500;
-  if (status >= 500) console.error('[error]', err);
+  if (status >= 500) {
+    console.error('[error]', err);
+    // Keyed by route, so one broken endpoint is one alert per 15 minutes.
+    const where = `${req.method} ${req.route?.path ?? req.path}`;
+    void alert(`5xx:${where}`, `Server error on ${where}: ${err?.message ?? err}`);
+  }
   res.status(status).json({
     error: status >= 500 ? 'Internal server error' : err?.message || 'Request failed',
   });

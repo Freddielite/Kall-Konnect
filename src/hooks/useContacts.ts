@@ -136,7 +136,8 @@ export function useContacts() {
     };
   }, []);
 
-  const addContact = async (contact: Omit<Contact, 'id' | 'notes'>) => {
+  /** `silent` skips the per-contact toast, for bulk imports that report once. */
+  const addContact = async (contact: Omit<Contact, 'id' | 'notes'>, { silent = false }: { silent?: boolean } = {}) => {
     try {
       const inserted = await api.post<{ id: string }>('/contacts', {
         name: contact.name,
@@ -166,11 +167,22 @@ export function useContacts() {
         });
       }
 
-      toast.success('Contact added successfully!');
+      if (!silent) toast.success(`${contact.name} added`);
+      return true;
       invalidate();
     } catch (error: unknown) {
       toast.error('Failed to add contact: ' + errorMessage(error));
+      return false;
     }
+  };
+
+  /** Adds a batch (an import) with one summary toast instead of one per
+   * contact, which for a phone export meant dozens stacked on screen. */
+  const importContacts = async (list: Omit<Contact, 'id' | 'notes'>[]) => {
+    const results = await Promise.all(list.map((c) => addContact(c, { silent: true })));
+    const added = results.filter(Boolean).length;
+    if (added > 0) toast.success(added === 1 ? '1 contact imported' : `${added} contacts imported`);
+    if (added < list.length) toast.error(`${list.length - added} couldn't be imported`);
   };
 
   const updateContact = async (id: string, updates: Partial<Contact>) => {
@@ -283,6 +295,7 @@ export function useContacts() {
     contacts,
     loading,
     addContact,
+    importContacts,
     updateContact,
     deleteContact,
     addCallNote,

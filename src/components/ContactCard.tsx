@@ -1,3 +1,5 @@
+import { normalizePhoneForWhatsApp } from '@/lib/phone';
+import { usePostCall } from '@/lib/post-call';
 import { Contact } from '@/types/contact';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -100,10 +102,6 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
     ? Math.floor((Date.now() - contact.lastCalled.getTime()) / (1000 * 60 * 60 * 24))
     : null;
 
-  const normalizePhoneForWhatsApp = (phone: string) => {
-    return phone.replace(/[\s\-+]/g, '');
-  };
-
   // Same-tab navigation, not window.open('_blank'). On iOS, _blank on a
   // tel:/wa.me link opens a genuine new empty Safari tab behind the native
   // app handoff - when the user returns from the call, they land on that
@@ -111,6 +109,10 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
   // tab entirely: the OS intercepts these schemes and hands off to the
   // native app (or falls back to loading the URL right here) without ever
   // spawning a second tab.
+  const { startCall } = usePostCall();
+  // Calls can now be logged without a note; show the latest one that has text.
+  const lastNoteWithText = contact.notes.find((n) => n.content.trim());
+
   const openLink = (url: string) => {
     window.location.href = url;
   };
@@ -118,6 +120,7 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
   const handlePhoneCall = () => {
     if (!contact.phone) return;
     openLink(`tel:${contact.phone.trim()}`);
+    startCall(contact, 'phone');
     onCallMade?.(contact.id, 'phone');
   };
 
@@ -127,6 +130,7 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
     const normalized = normalizePhoneForWhatsApp(waPhone);
     if (!normalized) return;
     openLink(`https://wa.me/${normalized}`);
+    startCall(contact, 'whatsapp');
     onCallMade?.(contact.id, 'whatsapp');
   };
 
@@ -135,6 +139,7 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
     const username = contact.instagramUsername.trim().replace(/^@/, '');
     if (!username) return;
     openLink(`https://instagram.com/${username}`);
+    startCall(contact, 'instagram');
     onCallMade?.(contact.id, 'instagram');
   };
 
@@ -143,6 +148,7 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
     const username = contact.snapchatUsername.trim().replace(/^@/, '');
     if (!username) return;
     openLink(`https://snapchat.com/add/${username}`);
+    startCall(contact, 'snapchat');
     onCallMade?.(contact.id, 'snapchat');
   };
 
@@ -280,11 +286,11 @@ export function ContactCard({ contact, occasion, conversationStarter, onCallMade
         </div>
       )}
 
-      {contact.notes.length > 0 && (
+      {lastNoteWithText && (
         <div className="mb-4 p-3 bg-accent/10 rounded-xl border border-accent/20">
           <p className="text-sm text-foreground">
             <span className="font-medium">Last chat: </span>
-            {contact.notes[0].content}
+            {lastNoteWithText.content}
           </p>
           {followUpFlagged && (
             <p className="text-xs text-accent-foreground/80 mt-1.5 font-medium">

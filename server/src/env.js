@@ -84,6 +84,16 @@ export const env = {
   // timezone isn't known yet (they haven't opened the app since migration
   // 013). Set it to where most users are, e.g. Africa/Lagos.
   cronTimezone: process.env.CRON_TIMEZONE ?? '',
+
+  // This server's own public URL (e.g. https://kall-konnect.onrender.com),
+  // used to build the "Remind me tomorrow" button on push notifications,
+  // which the phone calls directly. Unset: the button opens the app instead.
+  publicApiUrl: (clean(process.env.PUBLIC_API_URL) ?? '').replace(/\/+$/, ''),
+
+  // Optional Slack or Discord incoming-webhook URL. Server errors, failed
+  // reminder runs and browser errors are posted there (throttled), so a
+  // breakage reaches a human the same day. See lib/alerts.js.
+  errorWebhookUrl: clean(process.env.ERROR_WEBHOOK_URL) ?? '',
   // Re-run shortly after boot in case a restart straddled the scheduled
   // minute. A no-op if today's reminder already went out.
   cronCatchUpOnBoot: process.env.CRON_CATCH_UP_ON_BOOT !== 'false',

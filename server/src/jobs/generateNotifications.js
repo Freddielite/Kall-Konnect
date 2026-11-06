@@ -10,6 +10,7 @@ import {
 } from './reminderRules.js';
 import { env } from '../env.js';
 import { isValidTimeZone } from '../lib/validate.js';
+import { issueActionToken } from '../lib/actionTokens.js';
 import { buildReminder, greetingName, toneForContact } from './reminderCopy.js';
 import {
   buildFollowUpVocabulary,
@@ -100,6 +101,7 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
       `SELECT c.id, c.name, c.call_frequency, c.last_called, c.relationship,
               c.template_tone, c.birthday, c.anniversary, c.is_favorite, c.priority,
               c.created_at AS contact_created_at,
+              to_char(c.remind_next_on, 'YYYY-MM-DD') AS remind_next_on,
               (SELECT max(n.created_at)
                  FROM notifications n
                 WHERE n.user_id = c.user_id AND n.contact_id = c.id) AS last_notified_at,
@@ -207,7 +209,11 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
         continue; // an occasion contact isn't also a routine candidate today
       }
 
-      const scenario = chooseScenario({
+      // "Remind me tomorrow" from a lock-screen reminder: this contact is
+      // today's pick whatever the rotation, cadence or category settings
+      // say — the user asked for it explicitly.
+      const requested = Boolean(contact.remind_next_on && contact.remind_next_on <= localToday);
+      const computed = chooseScenario({
         occasion: null,
         followUpMatched,
         neverCalled,
@@ -215,8 +221,9 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
         inactivityDays: pref.inactivity_days,
         thresholdDays,
       });
+      const scenario = computed ?? (requested ? 'planned_call' : null);
       if (!scenario) continue;
-      if (!isCategoryEnabled(pref.notification_categories, scenario)) continue;
+      if (!requested && !isCategoryEnabled(pref.notification_categories, scenario)) continue;
 
       const { score } = urgencyScore({
         contact,
@@ -226,7 +233,7 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
       });
 
       routineCandidates.push({
-        contact, scenario, score, daysSinceLastCall, daysSinceAdded,
+        contact, scenario, score, daysSinceLastCall, daysSinceAdded, requested,
         lastNotifiedAt: contact.last_notified_at,
       });
     }
@@ -236,8 +243,11 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
     // been — a user with two contacts should still hear from us daily.
     // Skipped entirely on a day an occasion already fired, so a birthday
     // doesn't arrive alongside a routine nudge.
-    if (routineDue && routineCandidates.length > 0 && toCreate.length === 0) {
-      const chosen = pickDailyContact(routineCandidates, now);
+    const requestedCandidates = routineCandidates.filter((c) => c.requested);
+    if (requestedCandidates.length > 0 || (routineDue && routineCandidates.length > 0 && toCreate.length === 0)) {
+      const chosen = requestedCandidates.length > 0
+        ? [...requestedCandidates].sort((a, b) => b.score - a.score)[0]
+        : pickDailyContact(routineCandidates, now);
       toCreate.push({
         ...buildReminder(chosen.scenario, {
           contact: chosen.contact,
@@ -300,6 +310,9 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
         [pref.user_id, n.contactId, n.title, n.message, n.type, scheduledFor.toISOString()]
       );
       const notificationId = inserted[0].id;
+      if (n.contactId) {
+        await query('UPDATE contacts SET remind_next_on = NULL WHERE id = $1 AND remind_next_on IS NOT NULL', [n.contactId]);
+      }
 
       // Best-effort — a failed push shouldn't stop the rest of the job or
       // roll back the notification row; the in-app bell still shows it.
@@ -318,8 +331,7 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
           // One live notification per contact — a new reminder about the same
           // person replaces the old one instead of piling up on the lock screen.
           tag: n.contactId ? `kk-contact-${n.contactId}` : `kk-${n.type}`,
-          url: '/',
-          data: { notificationId: null, type: n.type, contactId: n.contactId },
+          ...pushTargets(notificationId, n.contactId),
         });
         if (delivered > 0) {
           await query('UPDATE notifications SET sent_at = now() WHERE id = $1', [notificationId]);
@@ -377,6 +389,38 @@ export async function generateNotifications({ dryRun = false, now = new Date(), 
   }
 
   return { created: totalCreated, plan };
+}
+
+/**
+ * Where a tapped reminder goes, and the buttons on it.
+ *
+ * A reminder about a person opens that person's page — not the Dashboard —
+ * with `kkn` so the app can record that it was opened (opened_at, for
+ * `npm run reminder-report`). "Call now" opens the same page ready to dial;
+ * a page has to be in front for the dialer anyway. "Remind me tomorrow" is
+ * handled by the service worker without opening the app, via a signed URL
+ * to this server, when PUBLIC_API_URL is set; otherwise it opens the app.
+ */
+export function pushTargets(notificationId, contactId) {
+  const base = contactId ? `/contacts/${contactId}` : '/';
+  const url = `${base}?kkn=${notificationId}`;
+  if (!contactId) return { url, data: { notificationId, contactId: null } };
+  return {
+    url,
+    actions: [
+      { action: 'call', title: 'Call now' },
+      { action: 'snooze', title: 'Remind me tomorrow' },
+    ],
+    data: {
+      notificationId,
+      contactId,
+      callUrl: `${base}?kkn=${notificationId}&action=call`,
+      snoozeAppUrl: `${base}?kkn=${notificationId}&action=snooze`,
+      snoozeUrl: env.publicApiUrl
+        ? `${env.publicApiUrl}/notifications/${notificationId}/snooze?t=${issueActionToken(notificationId, 'snooze')}`
+        : null,
+    },
+  };
 }
 
 /** Records that today's run is done for this user (their local date).

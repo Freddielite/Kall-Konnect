@@ -56,3 +56,12 @@ preferencesRouter.patch('/preferences', async (req, res) => {
   if (rowCount === 0) return res.status(404).json({ error: 'Preferences not found' });
   res.json({ ok: true });
 });
+
+/** The first-run flow is finished or skipped; it won't be shown again. */
+preferencesRouter.post('/preferences/onboarded', async (req, res) => {
+  await query(
+    'UPDATE user_preferences SET onboarded_at = COALESCE(onboarded_at, now()) WHERE user_id = $1',
+    [req.userId]
+  );
+  res.json({ ok: true });
+});

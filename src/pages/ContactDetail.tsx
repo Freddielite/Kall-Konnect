@@ -1,10 +1,11 @@
-import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { useContacts } from '@/hooks/useContacts';
 import { useLogCallFlow } from '@/hooks/useLogCallFlow';
 import { ContactCard } from '@/components/ContactCard';
+import { CallNowDialog } from '@/components/CallNowDialog';
 import { AddContactDialog } from '@/components/AddContactDialog';
 import { RescheduleDialog } from '@/components/RescheduleDialog';
 import { TemplateDialog } from '@/components/TemplateDialog';
@@ -39,6 +40,17 @@ export default function ContactDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [callNowOpen, setCallNowOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // "Call now" on a reminder lands here with ?action=call.
+  useEffect(() => {
+    if (searchParams.get('action') !== 'call' || !contact) return;
+    setCallNowOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, contact]);
 
   const handleReschedule = (contactId: string, date: Date) => {
     updateContact(contactId, { snoozedUntil: date });
@@ -120,6 +132,13 @@ export default function ContactDetail() {
           onLogCallOutside={logCall.openLogCall}
         />
 
+        <CallNowDialog
+          contact={contact}
+          open={callNowOpen}
+          onOpenChange={setCallNowOpen}
+          onEditContact={() => setEditOpen(true)}
+        />
+
         {/* Last call summary */}
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-muted-foreground mb-3">Last call</h2>
@@ -154,9 +173,13 @@ export default function ContactDetail() {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {noteEntry.content}
-                  </p>
+                  {noteEntry.content.trim() ? (
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                      {noteEntry.content}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Call logged, no notes.</p>
+                  )}
                 </Card>
               ))}
             </div>

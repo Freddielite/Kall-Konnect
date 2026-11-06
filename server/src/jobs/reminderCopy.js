@@ -201,6 +201,14 @@ const STREAK_BODIES = [
   (c) => `${c.g}${c.streak} days running. Whatever you're doing, it's working.`,
 ];
 
+// Evening, when a run of days is about to break: today has no call yet.
+// Encouraging, never guilt — the streak is the user's, not ours.
+const STREAK_RISK_BODIES = [
+  (c) => `${c.g}you've called someone ${c.streak} days running. A quick call tonight keeps it going.`,
+  (c) => `${c.g}${c.streak} days in a row so far. There's still time for a short call today.`,
+  (c) => `${c.g}your ${c.streak}-day run is still open. Even five minutes with someone counts.`,
+];
+
 const TITLES = {
   first_call: (c) => `Say hello to ${c.name}`,
   planned_call: (c) => `Time to call ${c.name}`,
@@ -214,13 +222,14 @@ const TITLES = {
         : (c.daysUntil === 0 ? `${c.name}'s ${c.label} is today` : `${c.name}'s ${c.label} is ${c.when}`),
   streak: (c) => `${c.streak}-day streak 🔥`,
   nudge: () => `All caught up`,
+  streak_risk: (c) => `Keep your ${c.streak}-day streak going 🔥`,
 };
 
 /** notifications.type values, one per scenario. Must stay in sync with the
  * CHECK constraint (migration 006) and with the icon map in
  * src/components/NotificationsBell.tsx. */
 export const SCENARIO_TYPES = [
-  'planned_call', 'inactivity', 'occasion', 'follow_up', 'first_call', 'streak', 'nudge',
+  'planned_call', 'inactivity', 'occasion', 'follow_up', 'first_call', 'streak', 'nudge', 'streak_risk',
 ];
 
 /** "you added them 12 days ago" / "…today" / "…yesterday". Used only for
@@ -246,6 +255,9 @@ export function whenLabel(daysUntil) {
  * userName, tone, occasion details, streak. `dayKey` seeds the variation so
  * re-running the job on the same day produces identical copy.
  */
+/** Scenarios about the user rather than one contact. */
+const USER_LEVEL = new Set(['streak', 'nudge', 'streak_risk']);
+
 export function buildReminder(scenario, ctx) {
   const name = ctx.contact?.name ?? 'them';
   const tone = ctx.tone ?? toneForContact(ctx.contact);
@@ -276,6 +288,8 @@ export function buildReminder(scenario, ctx) {
     message = NUDGE_BODIES[variantIndex(seed, NUDGE_BODIES.length)](view);
   } else if (scenario === 'streak') {
     message = STREAK_BODIES[variantIndex(seed, STREAK_BODIES.length)](view);
+  } else if (scenario === 'streak_risk') {
+    message = STREAK_RISK_BODIES[variantIndex(seed, STREAK_RISK_BODIES.length)](view);
   } else {
     const byTone = BODIES[scenario];
     if (!byTone) throw new Error(`Unknown reminder scenario: ${scenario}`);
@@ -285,13 +299,13 @@ export function buildReminder(scenario, ctx) {
 
   // Only one contact is named per day (see pickDailyContact), so say plainly
   // that there are others rather than silently dropping them.
-  if (ctx.alsoDue > 0 && scenario !== 'streak' && scenario !== 'nudge') {
+  if (ctx.alsoDue > 0 && !USER_LEVEL.has(scenario)) {
     message += ctx.alsoDue === 1 ? ' One other person is due too.' : ` ${ctx.alsoDue} others are due too.`;
   }
 
   // A live streak colours other reminders too, rather than firing its own
   // notification every morning — see reminderRules.chooseScenario.
-  if (scenario !== 'streak' && ctx.streak >= 3) {
+  if (!scenario.startsWith('streak') && ctx.streak >= 3) {
     message += ` You're on a ${ctx.streak}-day run.`;
   }
 

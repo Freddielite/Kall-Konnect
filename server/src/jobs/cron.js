@@ -1,5 +1,7 @@
 import cron from 'node-cron';
 import { generateNotifications } from './generateNotifications.js';
+import { generateStreakRiskNudges } from './streakRisk.js';
+import { alert, recordHeartbeat } from '../lib/alerts.js';
 import { purgeDeletedContacts } from '../routes/contacts.js';
 import { query } from '../db.js';
 import { env } from '../env.js';
@@ -10,18 +12,38 @@ import { env } from '../env.js';
  * generateNotifications. */
 export const REMINDER_SCHEDULE = '*/15 * * * *';
 
+/**
+ * Everything one reminder tick does: the morning-style reminders and the
+ * evening streak check, plus the heartbeat that GET /health/reminders
+ * reports and an alert if it fails. Shared by the in-process schedule and
+ * the external trigger (routes/jobs.js), so both behave identically.
+ * Rethrows after recording, so callers can report the failure too.
+ */
+export async function runReminderTick(source) {
+  try {
+    const { created } = await generateNotifications();
+    const { created: nudges } = await generateStreakRiskNudges();
+    await recordHeartbeat(query, 'reminders');
+    return { created, nudges };
+  } catch (err) {
+    await recordHeartbeat(query, 'reminders', err);
+    await alert('reminders-failed', `Reminder job failed (${source}): ${err.message}`);
+    throw err;
+  }
+}
+
 let running = false;
 async function run(source) {
   // A slow run must not overlap the next tick in the same process.
   if (running) return;
   running = true;
   try {
-    const { created } = await generateNotifications();
-    if (created > 0 || source !== 'scheduled') {
-      console.log(`[cron] generate-notifications (${source}): created ${created} notification(s)`);
+    const { created, nudges } = await runReminderTick(source);
+    if (created + nudges > 0 || source !== 'scheduled') {
+      console.log(`[cron] reminders (${source}): created ${created} reminder(s), ${nudges} streak nudge(s)`);
     }
   } catch (err) {
-    console.error(`[cron] generate-notifications (${source}) failed:`, err);
+    console.error(`[cron] reminders (${source}) failed:`, err);
   } finally {
     running = false;
   }

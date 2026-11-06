@@ -8,6 +8,7 @@ import { AnimatePresence } from "framer-motion";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import Dashboard from "./pages/Dashboard";
+import Welcome from "./pages/Welcome";
 import Contacts from "./pages/Contacts";
 import ContactDetail from "./pages/ContactDetail";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -23,6 +24,8 @@ import { BottomNav } from "./components/BottomNav";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { SplashScreen } from "./components/SplashScreen";
 import { safeNext } from "./lib/next-redirect";
+import { PostCallProvider } from "./lib/post-call";
+import { NotificationLinkHandler } from "./components/NotificationLinkHandler";
 
 /**
  * Cached data is what makes tab switches instant. The defaults below are
@@ -82,7 +85,10 @@ function AppRoutes() {
 
   return (
     <BrowserRouter>
-      <AnimatedRoutes session={session} />
+      <PostCallProvider>
+        <NotificationLinkHandler />
+        <AnimatedRoutes session={session} />
+      </PostCallProvider>
     </BrowserRouter>
   );
 }
@@ -146,11 +152,20 @@ function AnimatedRoutes({ session }: { session: unknown }) {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/welcome"
+            element={
+              <ProtectedRoute>
+                <Welcome />
+              </ProtectedRoute>
+            }
+          />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AnimatePresence>
-      {session && <BottomNav />}
+      {/* The first-run flow is full-screen: no tabs to wander off into yet. */}
+      {session && location.pathname !== '/welcome' && <BottomNav />}
     </>
   );
 }

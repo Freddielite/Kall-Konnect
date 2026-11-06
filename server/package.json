@@ -20,7 +20,8 @@
     "migrate:down": "node src/migrate.js down",
     "email-conflicts": "node scripts/email-conflicts.mjs",
     "merge-accounts": "node scripts/merge-accounts.mjs",
-    "test:integration": "node --test test/*.integration.test.js"
+    "test:integration": "node --test test/*.integration.test.js",
+    "reminder-report": "node scripts/reminder-report.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

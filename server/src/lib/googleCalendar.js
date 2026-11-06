@@ -147,10 +147,23 @@ export async function upsertCalendarEvent({ accessToken, eventId, summary, descr
 }
 
 export async function disconnectGoogleCalendar(userId) {
+  const { rows } = await query('SELECT google_calendar_refresh_token FROM users WHERE id = $1', [userId]);
+  const token = rows[0]?.google_calendar_refresh_token;
   await query(
     `UPDATE users
      SET google_calendar_refresh_token = NULL, google_calendar_connected_at = NULL, google_calendar_email = NULL
      WHERE id = $1`,
     [userId]
   );
+  // Also tell Google, so the app's access really ends rather than lingering
+  // under the user's Google account permissions. Best-effort: forgetting
+  // the token locally above already stops this app from using it.
+  if (token) {
+    await fetch('https://oauth2.googleapis.com/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token }),
+      signal: AbortSignal.timeout(5000),
+    }).catch((err) => console.warn('[google-calendar] revoke failed:', err.message));
+  }
 }

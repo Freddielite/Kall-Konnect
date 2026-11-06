@@ -53,6 +53,10 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://kk:kk@localhost:5432/kk_test
+      # Some unit tests load the server config, which requires both (they
+      # don't connect). Throwaway values: CI never talks to production.
+      DATABASE_URL: postgres://kk:kk@localhost:5432/kk_test
+      JWT_SECRET: ci-only-not-a-real-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

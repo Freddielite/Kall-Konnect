@@ -35,7 +35,7 @@ const relationshipBadgeClass = (relationship: string) => {
 export default function Contacts() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { contacts, loading, addContact, updateContact, deleteContact, refreshContacts, addCallNote } = useContacts();
+  const { contacts, loading, addContact, importContacts, updateContact, deleteContact, refreshContacts, addCallNote } = useContacts();
   const logCall = useLogCallFlow({ contacts, addCallNote });
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRelationship, setFilterRelationship] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export default function Contacts() {
   };
 
   const handleImportContacts = (newContacts: Contact[]) => {
-    newContacts.forEach(contact => addContact(contact));
+    void importContacts(newContacts);
   };
 
   const handleToggleFavorite = (contactId: string) => {

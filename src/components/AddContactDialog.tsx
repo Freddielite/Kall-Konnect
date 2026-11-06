@@ -188,12 +188,10 @@ export function AddContactDialog({ open, onOpenChange, onAddContact, contact, on
         description: `${payload.name}'s details have been saved.`,
       });
     } else {
+      // Confirmed by useContacts once the save succeeds; announcing it here
+      // too doubled every "added" toast, and claimed success before the save.
       onAddContact({ id: Date.now().toString(), ...payload } as Contact);
       resetForm();
-      toast({
-        title: 'Contact added! 🎉',
-        description: `${payload.name} has been added to your contacts.`,
-      });
     }
 
     onOpenChange(false);

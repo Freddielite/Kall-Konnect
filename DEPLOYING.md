@@ -235,6 +235,8 @@ Ignore `supabase-cutover.sql`, it's historical.
 | ---------------- | -------------------------------------------- |
 | `NODE_ENV`       | `production`                                 |
 | `CRON_TIMEZONE`  | `Africa/Lagos` (fallback only, see §1b)      |
+| `PUBLIC_API_URL` | this backend's own URL (lock-screen buttons) |
+| `ERROR_WEBHOOK_URL` | Slack/Discord webhook for alerts (§10)    |
 | `DATABASE_URL`   | Render's internal Postgres URL               |
 | `JWT_SECRET`     | long random string — **not** the dev one     |
 | `COOKIE_SECURE`  | `true`                                       |
@@ -360,3 +362,48 @@ See the top entry in HANDOVER.md for what changed. In order:
 7. **Nobody is signed out by the deploy.** Access tokens issued before it
    carry no session version and count as version 0, which is every user's
    starting version, so existing sessions keep working.
+
+---
+
+## 10. Monitoring, backups and data deletion
+
+The failure this app is most exposed to is silent: reminders stop going out
+and nothing errors, because a job that doesn't run doesn't fail. Three
+things catch that, all free.
+
+**1. Alerts to a chat channel.** Create an incoming webhook (Slack: Apps >
+Incoming Webhooks; Discord: channel > Integrations > Webhooks) and set
+`ERROR_WEBHOOK_URL` on Render. Server errors, failed reminder runs and
+crashes in users' browsers are posted there, at most once per problem per 15
+minutes and 20 an hour in total.
+
+**2. An outside uptime check on the reminders.** In UptimeRobot or Better
+Stack, add an HTTP monitor for `https://<backend>/health/reminders` every 5
+minutes, alerting a person by email or SMS. It returns 503 when reminders
+haven't completed successfully in 2 hours, or the database is unreachable.
+(`/health` stays the cheap liveness check the keep-awake pinger uses.)
+
+**3. Check that reminders work, monthly.** `npm run reminder-report` shows,
+per kind of reminder, how many were opened and how many led to a call within
+48 hours, and how many people turned each kind off.
+
+### Backups: restore one before you need it
+
+A backup you have never restored is a hope. Once now, then each quarter:
+
+1. Render dashboard > your Postgres > Recovery (or Backups): note what your
+   plan keeps. Free databases have no backups at all; paid plans have
+   daily backups and, on higher tiers, point-in-time recovery.
+2. Restore the latest backup into a **new** database, never over production.
+3. Point a local server at it: `DATABASE_URL=<restored URL> npm run reminder-report`.
+   Recent reminders should be there.
+4. Write down the date and how long it took. That's your recovery time.
+5. Delete the scratch database.
+
+### What "delete my account" covers
+
+`DELETE /account` (Settings > Your Data) removes the user and every row that
+references them, at once, and revokes the Google Calendar grant. Copies in
+database backups are not touched: they expire on the provider's retention
+schedule. If you publish a privacy policy, state that period (e.g. "removed
+from backups within 30 days").

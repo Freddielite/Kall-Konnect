@@ -497,8 +497,9 @@ describe('never-called contacts count from when they were added', () => {
 });
 
 describe('notification categories', () => {
-  test('all six are listed', () => {
-    assert.equal(NOTIFICATION_CATEGORIES.length, 6);
+  test('all seven are listed, including the evening streak nudge', () => {
+    assert.equal(NOTIFICATION_CATEGORIES.length, 7);
+    assert.ok(NOTIFICATION_CATEGORIES.includes('streak_risk'));
     for (const c of NOTIFICATION_CATEGORIES) {
       assert.ok(SCENARIO_TYPES.includes(c), `${c} is not a valid notifications.type`);
     }

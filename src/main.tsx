@@ -2,6 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { installErrorReporting } from "./lib/errorReporting";
+
+// First, so errors during startup are caught too. Only in builds: in
+// development the console already shows everything.
+if (import.meta.env.PROD) installErrorReporting();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -210,7 +210,10 @@ authRouter.post('/logout-all', requireAuth, async (req, res) => {
 });
 
 authRouter.get('/me', requireAuth, async (req, res) => {
-  const { rows } = await query('SELECT id, email, display_name, email_verified, timezone FROM users WHERE id = $1', [req.userId]);
+  const { rows } = await query(
+    'SELECT id, email, display_name, email_verified, timezone, password_hash IS NOT NULL AS has_password FROM users WHERE id = $1',
+    [req.userId]
+  );
   if (!rows[0]) return res.status(404).json({ error: 'User not found' });
   res.json({
     id: rows[0].id,
@@ -218,6 +221,8 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     displayName: rows[0].display_name,
     emailVerified: rows[0].email_verified,
     timezone: rows[0].timezone,
+    // Decides how account deletion is confirmed (password, or typed email).
+    hasPassword: rows[0].has_password,
   });
 });
 

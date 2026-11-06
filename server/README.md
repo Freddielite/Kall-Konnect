@@ -160,4 +160,5 @@ suites on every push (`.github/workflows/ci.yml`).
 npm run email-conflicts                                       # accounts differing only in email case
 npm run merge-accounts -- --keep <id> --remove <id> [--yes]  # merge one into the other
 npm run migrate:down [-- --steps N]                           # roll back migrations
+npm run reminder-report [-- --days 30]                        # are reminders leading to calls?
 ```

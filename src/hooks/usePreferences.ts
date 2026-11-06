@@ -9,6 +9,8 @@ interface Preferences {
   preferred_call_time: 'morning' | 'afternoon' | 'evening' | 'anytime';
   auto_add_calendar_reminders: boolean;
   quiet_day_nudges: boolean;
+  /** Set once the first-run flow is finished or skipped; null for new users. */
+  onboarded_at?: string | null;
   notification_categories: NotificationCategories;
 }
 
@@ -17,7 +19,7 @@ interface Preferences {
  * key means enabled, so a preferences row written before a category existed
  * doesn't silently go quiet. */
 export type NotificationCategory =
-  | 'planned_call' | 'inactivity' | 'occasion' | 'follow_up' | 'first_call' | 'streak';
+  | 'planned_call' | 'inactivity' | 'occasion' | 'follow_up' | 'first_call' | 'streak' | 'streak_risk';
 
 export type NotificationCategories = Partial<Record<NotificationCategory, boolean>>;
 
@@ -31,7 +33,7 @@ const DEFAULTS: Preferences = {
   quiet_day_nudges: true,
   notification_categories: {
     planned_call: true, inactivity: true, occasion: true,
-    follow_up: true, first_call: true, streak: true,
+    follow_up: true, first_call: true, streak: true, streak_risk: true,
   },
 };
 
