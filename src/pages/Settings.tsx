@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User, Trash2, ShieldCheck } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Calendar, Moon, Info, Link as LinkIcon, LogOut, User, Trash2, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -335,31 +335,34 @@ export default function Settings() {
               )}
 
               {preferences.notifications_enabled && pushStatus === 'subscribed' && (
-                <div className="rounded-xl border border-dashed p-3">
-                  <p className="text-sm text-muted-foreground mb-2">
+                <div className="rounded-xl border-2 border-border p-3 space-y-3">
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                     This device is receiving reminders.
                   </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={handleResubscribe}
-                    disabled={pushBusy}
-                  >
-                    {pushBusy ? 'Re-registering…' : 'Re-register'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-xl mt-2 w-full"
-                    onClick={handleDisablePush}
-                    disabled={pushBusy}
-                  >
-                    Turn off on this device
-                  </Button>
-                  {pushError && <p className="text-sm text-destructive mt-2">{pushError}</p>}
+                  <div className="grid gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full rounded-xl"
+                      onClick={handleResubscribe}
+                      disabled={pushBusy}
+                    >
+                      {pushBusy ? 'Re-registering…' : 'Re-register'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full rounded-xl border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={handleDisablePush}
+                      disabled={pushBusy}
+                    >
+                      Turn off on this device
+                    </Button>
+                  </div>
+                  {pushError && <p className="text-sm text-destructive">{pushError}</p>}
                 </div>
               )}
 
